@@ -23,7 +23,6 @@ class CBBeforeRegVerify
 {
 	public const SESSION_FLOW_EMAIL		=	'cbbeforeregverify_flow_email';
 	public const SESSION_VERIFIED_EMAIL	=	'cbbeforeregverify_verified_email';
-	public const SESSION_NOTICE		=	'cbbeforeregverify_notice';
 	public const MAIL_TEMPLATE_KEY		=	'comprofiler.cbbeforeregverify.verification_code';
 
 	/** @var bool */
@@ -61,6 +60,8 @@ class CBBeforeRegVerify
 	/**
 	 * @return void
 	 */
+	private const PURGE_GATE_SEC	=	3600;
+
 	public static function runMaintenance(): void
 	{
 		if ( self::$maintenanceRan ) {
@@ -69,8 +70,15 @@ class CBBeforeRegVerify
 
 		self::$maintenanceRan	=	true;
 
+		$marker	=	( \defined( 'JPATH_ROOT' ) ? JPATH_ROOT : sys_get_temp_dir() ) . '/tmp/.cbbeforeregverify_purge';
+
+		if ( @filemtime( $marker ) > ( time() - self::PURGE_GATE_SEC ) ) {
+			return;
+		}
+
 		try {
 			self::purgeOldRows( self::getPurgeAfterDays() );
+			@touch( $marker );
 		} catch ( \Throwable $e ) {
 			// Ignore maintenance errors to avoid blocking unrelated requests.
 		}
@@ -215,7 +223,7 @@ class CBBeforeRegVerify
 	 */
 	public static function hashCode( string $code ): string
 	{
-		return hash( 'sha256', $code . self::getSecret() );
+		return hash_hmac( 'sha256', $code, self::getSecret() );
 	}
 
 	/**
@@ -472,30 +480,16 @@ class CBBeforeRegVerify
 			return 0;
 		}
 
-		$query	=	'SELECT ' . $_CB_database->NameQuote( 'sent_at' ) . ', ' . $_CB_database->NameQuote( 'ttl' )
+		$now	=	Application::Database()->getUtcDateTime();
+		$query	=	'SELECT COUNT(*)'
 				.	"\n FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_beforeregverify' )
 				.	"\n WHERE " . $_CB_database->NameQuote( 'email' ) . " = " . $_CB_database->Quote( $email )
 				.	"\n AND " . $_CB_database->NameQuote( 'status' ) . " = " . $_CB_database->Quote( VerificationTable::STATUS_ATTEMPT )
-				.	"\n AND " . $_CB_database->NameQuote( 'outcome' ) . " = " . $_CB_database->Quote( VerificationTable::OUTCOME_FAILED );
+				.	"\n AND " . $_CB_database->NameQuote( 'outcome' ) . " = " . $_CB_database->Quote( VerificationTable::OUTCOME_FAILED )
+				.	"\n AND DATE_ADD(" . $_CB_database->NameQuote( 'sent_at' ) . ', INTERVAL ' . $_CB_database->NameQuote( 'ttl' ) . ' SECOND) > ' . $_CB_database->Quote( $now );
 		$_CB_database->setQuery( $query );
-		$rows	=	$_CB_database->loadObjectList();
 
-		if ( ! $rows ) {
-			return 0;
-		}
-
-		$now	=	Application::Date( 'now', 'UTC' )->getTimestamp();
-		$count	=	0;
-
-		foreach ( $rows as $row ) {
-			$expiresAt	=	Application::Date( $row->sent_at, 'UTC' )->getTimestamp() + max( 1, (int) $row->ttl );
-
-			if ( $expiresAt > $now ) {
-				$count++;
-			}
-		}
-
-		return $count;
+		return (int) $_CB_database->loadResult();
 	}
 
 	/**
@@ -627,7 +621,7 @@ class CBBeforeRegVerify
 	 * @param int    $ttl
 	 * @return bool
 	 */
-	public static function sendVerificationEmail( string $email, string $code, int $ttl ): bool
+	private static function sendVerificationEmail( string $email, string $code, int $ttl ): bool
 	{
 		$minutes			=	(int) ceil( max( 1, $ttl ) / 60 );
 
@@ -702,12 +696,12 @@ class CBBeforeRegVerify
 		}
 
 		$query	=	'UPDATE ' . $_CB_database->NameQuote( '#__comprofiler_plugin_beforeregverify' )
-				.	"\n SET " . $_CB_database->NameQuote( 'outcome' ) . " = " . $_CB_database->Quote( 'cancelled' )
+				.	"\n SET " . $_CB_database->NameQuote( 'outcome' ) . " = " . $_CB_database->Quote( VerificationTable::OUTCOME_CANCELLED )
 				.	', ' . $_CB_database->NameQuote( 'note' ) . ' = ' . $_CB_database->Quote( $reason )
 				.	', ' . $_CB_database->NameQuote( 'modified_at' ) . ' = ' . $_CB_database->Quote( Application::Database()->getUtcDateTime() )
 				.	"\n WHERE " . $_CB_database->NameQuote( 'email' ) . " = " . $_CB_database->Quote( $email )
-				.	"\n AND " . $_CB_database->NameQuote( 'outcome' ) . " = " . $_CB_database->Quote( 'pending' )
-				.	"\n AND " . $_CB_database->NameQuote( 'status' ) . " IN ( " . $_CB_database->Quote( 'sent' ) . ', ' . $_CB_database->Quote( 'resent' ) . ' )';
+				.	"\n AND " . $_CB_database->NameQuote( 'outcome' ) . " = " . $_CB_database->Quote( VerificationTable::OUTCOME_PENDING )
+				.	"\n AND " . $_CB_database->NameQuote( 'status' ) . " IN ( " . $_CB_database->Quote( VerificationTable::STATUS_SENT ) . ', ' . $_CB_database->Quote( VerificationTable::STATUS_RESENT ) . ' )';
 		$_CB_database->setQuery( $query );
 		$_CB_database->query();
 	}
@@ -723,7 +717,7 @@ class CBBeforeRegVerify
 			return false;
 		}
 
-		$row->set( 'outcome', 'cancelled' );
+		$row->set( 'outcome', VerificationTable::OUTCOME_CANCELLED );
 		$row->set( 'note', $reason );
 		$row->set( 'modified_at', Application::Database()->getUtcDateTime() );
 
@@ -737,13 +731,18 @@ class CBBeforeRegVerify
 	 */
 	public static function renderView( string $view, array $vars = [] ): string
 	{
+		if ( ! in_array( $view, [ 'step_email', 'step_code' ], true ) ) {
+			return '';
+		}
+
 		$template	=	__DIR__ . '/../templates/default/' . $view . '.php';
 
 		if ( ! file_exists( $template ) ) {
 			return '';
 		}
 
-		extract( $vars, EXTR_SKIP );
+		$flowEmail	=	$vars['flowEmail'] ?? '';
+		$codeLength	=	$vars['codeLength'] ?? 0;
 
 		ob_start();
 		include $template;

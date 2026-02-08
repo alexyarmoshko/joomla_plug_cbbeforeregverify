@@ -88,8 +88,8 @@ Verification records are stored in a plugin-owned table with a two-field state m
   Rationale: Stakeholder requested explicit send timestamp and expiration based on request sending time.
   Date/Author: 2026-02-06 / Codex
 
-- Decision: Use `sha256(code + secret)` for code hashing instead of bcrypt.
-  Rationale: This is a low-risk gateway control and stakeholder explicitly accepted a simpler fast hash approach.
+- Decision: Use `HMAC-SHA256(code, secret)` for code hashing instead of bcrypt.
+  Rationale: HMAC is the correct keyed-hash primitive; stakeholder explicitly accepted a fast hash approach for this low-risk gateway control.
   Date/Author: 2026-02-06 / Stakeholder
 
 - Decision: Require CSRF token validation on all form submissions and state-changing gateway actions (step-1 email, step-2 code, resend, cancel, restart).
@@ -151,6 +151,14 @@ Verification records are stored in a plugin-owned table with a two-field state m
 - Decision: Seed Administrator English (`en-GB`, `client_id = 1`) language overrides for mail-template title/description/short keys during installer `postflight`.
   Rationale: Ensures Mail Templates UI shows readable labels for this plugin template without requiring manual Language Overrides setup.
   Date/Author: 2026-02-08 / Codex
+
+- Decision: Whitelist allowed view names in `renderView()` to prevent path-traversal risk from the `$view` parameter.
+  Rationale: Although all current callers pass hardcoded strings, a defensive whitelist (`['step_email', 'step_code']`) prevents future misuse if the call chain changes.
+  Date/Author: 2026-02-08 / Review
+
+- Decision: Gate purge frequency using a file-based mtime check (`JPATH_ROOT/tmp/.cbbeforeregverify_purge`) with a hardcoded 3600-second interval.
+  Rationale: Avoids a DELETE query on every request. File mtime is a zero-DB-cost gate; `@touch`/`@filemtime` degrade gracefully if tmp is unwritable (purge runs every request as before). DB-based gates would add a SELECT on every request, defeating the purpose.
+  Date/Author: 2026-02-08 / Review
 
 ## Outcomes & Retrospective
 
@@ -367,7 +375,7 @@ Use `component.cbbeforeregverify.php` for step routing and form posts. The compo
 Use `library/CBBeforeRegVerify.php` for service logic:
 
 - normalize email
-- generate code and hash with `sha256(code + secret)` using configurable secret
+- generate code and hash with `HMAC-SHA256(code, secret)` using configurable secret
 - verify code using `hash_equals()` for timing-safe comparison
 - TTL evaluation
 - mail send via Joomla Mail Templates with CB fallback
@@ -384,7 +392,6 @@ Session keys:
 
 - `cbbeforeregverify_flow_email`
 - `cbbeforeregverify_verified_email`
-- `cbbeforeregverify_notice`
 
 Hook behavior summary:
 
@@ -444,7 +451,7 @@ Core settings:
 - `gateway_enabled` yes/no default yes.
 - `verification_ttl_sec` int default 900.
 - `code_length` int default 6. Changing this value does not affect existing active verification codes.
-- `secret` text, configurable secret used in `sha256(code + secret)` for code hashing. Must be set to a non-empty value before the gateway is enabled.
+- `secret` text, configurable secret used as the HMAC-SHA256 key for code hashing. Must be set to a non-empty value before the gateway is enabled.
 - `purge_after_days` int default 30. Minimum value must be at least `ceil(verification_ttl_sec / 86400)`. Rows with `modified_at` older than this threshold are deleted on plugin initialization regardless of status/outcome, except active `pending` rows (`sent_at + ttl > now`) are retained.
 
 Rate limiter settings (all independently switchable):
@@ -626,7 +633,7 @@ Expected files after implementation:
 
 Security notes:
 
-- Never store plain verification codes; store only `sha256(code + secret)` hashes.
+- Never store plain verification codes; store only `HMAC-SHA256(code, secret)` hashes.
 - All form submissions must validate Joomla CSRF tokens.
 - Code verification must use `hash_equals()` for timing-safe comparison.
 - Session ID must be regenerated after verification completion.
@@ -645,7 +652,7 @@ Recommended service methods:
 
 - `normalizeEmail(string $email): string`
 - `issueCode(string $email, string $ip): VerificationTable`
-- `hashCode(string $code): string` — SHA-256 over `code + secret`
+- `hashCode(string $code): string` — HMAC-SHA256 with `secret` as key
 - `verifyCode(VerificationTable $row, string $code): bool` — timing-safe comparison via `hash_equals()`
 - `recordFailedAttempt(VerificationTable $activeRow, string $email, string $ip): VerificationTable` — inserts an `attempt`/`failed` row for incorrect code submission
 - `getActiveVerificationRow(string $email): ?VerificationTable` — returns only rows where `status` is `sent`/`resent` and `outcome` is `pending`
@@ -657,34 +664,4 @@ Recommended service methods:
 
 ## Revision Notes
 
-Revised on 2026-02-06 to adopt stakeholder-requested naming (`plug_cbbeforeregverify` and `CBBeforeRegVerify`), to make the no-user-creation-before-verification rule explicit across milestones and validation, to simplify the data model, and to add `sent_at` as the expiration baseline (`sent_at + ttl`).
-
-Revised on 2026-02-06 after security and consistency review. Changes: (1) split single `status` field into immutable `status` (sent/resent) and mutable `outcome` (pending/verified/cancelled); (2) specified HMAC-SHA256 with configurable secret for code hashing; (3) added CSRF token validation requirement to all form submissions; (4) added `hash_equals()` for timing-safe code comparison; (5) added session ID regeneration after verification; (6) removed email existence check — duplicate handling deferred to Joomla/CB registration validation; (7) documented IPv6 rate-limit limitation; (8) noted `code_length` configuration change is not retroactive; (9) attempt counting uses request history within time window, not per-row counter; (10) added `purge_after_days` configuration with minimum bound to TTL; (11) added `(request_ip, sent_at)` index; (12) clarified `sent_at` serves as creation timestamp; (13) removed `cbbeforeregverify_login_prefill` session key and `existing_email_redirect`/`prefill_login_email` configuration parameters.
-
-Revised on 2026-02-07 to apply stakeholder clarifications. Changes: (1) cancel now always redirects to site home page and `cancel_redirect_mode`/`cbbeforeregverify_return` were removed from the plan; (2) attempt limiter history is sourced from verification table rows for the same email using `sent_at + ttl` window logic; (3) every new active row creation now soft-cancels existing pending rows for that email with note `replaced_by_new_issue`; (4) hash strategy simplified to `sha256(code + secret)`; (5) purge-on-initialization runtime overhead was explicitly accepted for expected low registration volume.
-
-Revised on 2026-02-07 to implement failed-attempt row tracking. Changes: (1) `status` domain expanded to `sent`/`resent`/`attempt`; (2) `outcome` domain expanded to include `failed`; (3) each failed `submit_code` inserts one `attempt`/`failed` row while successful submit updates only the active verification row; (4) attempts limiter now counts only `attempt`/`failed` rows within the TTL-based window; (5) purge scope now includes `failed` rows.
-
-Revised on 2026-02-07 to tighten implementation contracts. Changes: (1) failed-attempt row insertion now explicitly sets `ttl` from active verification row and sets `sent_at`/`modified_at` to failed-submit time; (2) active verification row lookup contract was made explicit as `status IN ('sent','resent') AND outcome = 'pending'` across table/service/interface guidance.
-
-Revised on 2026-02-07 to align implemented UX recovery controls. Changes: (1) step-1 email screen now includes cancel action in addition to step-2 cancel; (2) verified-email registration state now includes `Use a different email` restart action routed through `func=restart`; (3) validation matrix extended with restart scenario evidence.
-
-Revised on 2026-02-07 to plan confirmed-state compatibility improvement. Changes: (1) added Milestone 6 for registration-time-only `confirmed` override, (2) constrained implementation to `onBeforeUserRegistration` and to mutating only `confirmed`, (3) extended validation matrix with explicit confirmed override checks.
-
-Revised on 2026-02-07 to implement Milestone 6 in code. Changes: (1) registered `onBeforeUserRegistration` in plugin bootstrap, (2) added guarded confirmed-only override in `UserTrigger` when verified-session email matches registration email, (3) recorded code-path evidence in the validation matrix.
-
-Revised on 2026-02-08 to add Milestone 7 planning for Joomla Mail Template integration. Changes: (1) documented verified Joomla 5.4.2 constraints from the test site, (2) added requirement to use enabled extension prefix (`comprofiler`) in template key so it appears in Mail Templates UI, (3) added installer bootstrap + runtime `MailTemplate` send flow with CB fallback, and (4) extended validation scenarios for template customization and fallback behavior.
-
-Revised on 2026-02-08 to implement Milestone 7 in code. Changes: (1) installer now creates default template `comprofiler.cbbeforeregverify.verification_code` when missing, (2) verification mail delivery now uses Joomla `MailTemplate` with `code`/`minutes` data and recipient handling, (3) `cbNotification->sendFromSystem` fallback remains active on template send failure/exception, and (4) code-path validation evidence for scenario 13 was recorded.
-
-Revised on 2026-02-08 to document and address Mail Templates label-key rendering. Changes: (1) recorded finding that missing language keys display as raw `comprofiler_MAIL_*` constants, (2) added installer provisioning of admin language override entries in `administrator/language/overrides/en-GB.override.ini` for template title/description/short labels, and (3) extended scenario 13 validation criteria to assert readable label rendering.
-
-Revised on 2026-02-08 to harden language-key compatibility. Changes: (1) after observing unresolved labels post-install, installer override provisioning was expanded to write both lowercase and uppercase mail-template label keys, (2) installer now writes missing keys for both `en-GB` and the active admin language tag override file, and (3) this preserves non-destructive behavior by adding only missing keys.
-
-Revised on 2026-02-08 to harden restart action CSRF handling. Changes: (1) registration-page restart control was changed from GET link to POST form with token input, (2) `restart` handler now enforces `checkFormToken()` before mutating verification session state, and (3) CSRF-related milestones/validation notes were updated to include restart explicitly.
-
-Revised on 2026-02-08 to harden user-facing error handling. Changes: (1) component catch blocks for email submit/resend/failed-attempt store no longer echo raw exception messages to users, (2) those paths now return generic localized error messages, and (3) detailed exceptions are logged server-side through Joomla Log with `error_log` fallback.
-
-Revised on 2026-02-08 to improve maintenance cleanup scope. Changes: `purgeOldRows()` now deletes stale expired `pending` rows (status `sent`/`resent`, `sent_at + ttl <= now`) older than the purge threshold in addition to terminal outcomes.
-
-Revised on 2026-02-08 to simplify purge criteria. Changes: `purgeOldRows()` now purges stale rows by age regardless of status/outcome using `modified_at < threshold`, while retaining unexpired `pending` rows (`sent_at + ttl > now`) as the only exception.
+Full revision history is maintained in [`execution_changelog.md`](execution_changelog.md).

@@ -21,7 +21,7 @@ No Joomla/CB user is created by this plugin before verification completes.
 - Verification actions: submit email, submit code, resend, cancel, restart.
 - CSRF checks on all gateway actions (`submit_email`, `submit_code`, `resend`, `cancel`, `restart`) and registration save request.
 - Exception details are logged server-side while user-facing gateway errors remain generic/localized.
-- Code hashing with `sha256(code + secret)`.
+- Code hashing with `HMAC-SHA256(code, secret)`.
 - TTL-based expiry and automatic expiry handling.
 - Failed-attempt row recording with configurable attempts limit.
 - Independent IP-based and email-based send limits.
@@ -55,7 +55,7 @@ No Joomla/CB user is created by this plugin before verification completes.
 - `gateway_enabled` (default `1`): enable/disable the gateway.
 - `verification_ttl_sec` (default `900`): active request TTL in seconds (runtime minimum `60`).
 - `code_length` (default `6`): numeric code length (runtime minimum `4`).
-- `secret` (default empty): required for issuing codes; used in `sha256(code + secret)`.
+- `secret` (default empty): required for issuing codes; used in `HMAC-SHA256(code, secret)`.
 - `purge_after_days` (default `30`): stale-row retention window; unexpired pending rows are retained (runtime minimum is bounded by TTL window).
 - `rl_ip_enabled` (default `1`): enable IP send limits.
 - `rl_ip_short_window_min` (default `15`), `rl_ip_short_max` (default `5`).
