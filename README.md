@@ -10,7 +10,7 @@ Current flow:
 2. Plugin issues and sends a numeric verification code.
 3. Guest enters the code on `step_code` (with resend/cancel actions available).
 4. On success, plugin marks the verification row as `verified`, regenerates the session ID, and redirects to CB registration.
-5. Registration email is prefilled/locked to the verified address, with a `Use a different email` restart action.
+5. Registration email is prefilled/locked to the verified address, with a CSRF-protected `Use a different email` restart action.
 6. Registration submit is blocked unless the submitted email matches the verified session email.
 
 No Joomla/CB user is created by this plugin before verification completes.
@@ -19,13 +19,14 @@ No Joomla/CB user is created by this plugin before verification completes.
 
 - Email-first registration gateway (`gateway_enabled` toggle).
 - Verification actions: submit email, submit code, resend, cancel, restart.
-- CSRF checks on gateway form submissions and registration save request.
+- CSRF checks on all gateway actions (`submit_email`, `submit_code`, `resend`, `cancel`, `restart`) and registration save request.
+- Exception details are logged server-side while user-facing gateway errors remain generic/localized.
 - Code hashing with `sha256(code + secret)`.
 - TTL-based expiry and automatic expiry handling.
 - Failed-attempt row recording with configurable attempts limit.
 - Independent IP-based and email-based send limits.
 - Resend cooldown limiter.
-- Runtime purge of old terminal rows (`verified`, `cancelled`, `failed`).
+- Runtime purge of stale rows older than purge threshold, while retaining unexpired `pending` verification rows.
 - Joomla Mail Template support (`comprofiler.cbbeforeregverify.verification_code`) with fallback to `cbNotification`.
 - At registration time, verified users are marked `confirmed = 1` when the verified email matches the registration email.
 
@@ -55,7 +56,7 @@ No Joomla/CB user is created by this plugin before verification completes.
 - `verification_ttl_sec` (default `900`): active request TTL in seconds (runtime minimum `60`).
 - `code_length` (default `6`): numeric code length (runtime minimum `4`).
 - `secret` (default empty): required for issuing codes; used in `sha256(code + secret)`.
-- `purge_after_days` (default `30`): retention of terminal rows (runtime minimum is bounded by TTL window).
+- `purge_after_days` (default `30`): stale-row retention window; unexpired pending rows are retained (runtime minimum is bounded by TTL window).
 - `rl_ip_enabled` (default `1`): enable IP send limits.
 - `rl_ip_short_window_min` (default `15`), `rl_ip_short_max` (default `5`).
 - `rl_ip_day_window_hours` (default `24`), `rl_ip_day_max` (default `25`).

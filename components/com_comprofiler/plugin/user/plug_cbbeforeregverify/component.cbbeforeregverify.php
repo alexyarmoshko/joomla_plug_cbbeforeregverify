@@ -11,6 +11,7 @@ use CB\Plugin\BeforeRegVerify\CBBeforeRegVerify;
 use CB\Plugin\BeforeRegVerify\Table\VerificationTable;
 use CBLib\Application\Application;
 use CBLib\Language\CBTxt;
+use Joomla\CMS\Log\Log;
 
 if ( ! ( defined( '_VALID_CB' ) || defined( '_JEXEC' ) || defined( '_VALID_MOS' ) ) ) { die( 'Direct Access to this location is not allowed.' ); }
 
@@ -85,9 +86,11 @@ class CBplug_cbbeforeregverify extends cbPluginHandler
 		try {
 			CBBeforeRegVerify::issueInitialCode( $email, (string) Application::Input()->getRequestIP() );
 		} catch ( \Throwable $e ) {
+			$this->logException( $e, 'submit_email' );
+
 			cbRedirect(
 				CBBeforeRegVerify::getGatewayUrl( 'step_email' ),
-				$e->getMessage() ?: CBTxt::T( 'CBBEFOREREGVERIFY_EMAIL_SUBMIT_FAILED', 'Unable to start verification right now. Please try again.' ),
+				CBTxt::T( 'CBBEFOREREGVERIFY_EMAIL_SUBMIT_FAILED', 'Unable to start verification right now. Please try again.' ),
 				'error'
 			);
 		}
@@ -190,9 +193,11 @@ class CBplug_cbbeforeregverify extends cbPluginHandler
 		try {
 			CBBeforeRegVerify::recordFailedAttempt( $row, $email, (string) Application::Input()->getRequestIP() );
 		} catch ( \Throwable $e ) {
+			$this->logException( $e, 'submit_code_failed_attempt' );
+
 			cbRedirect(
 				CBBeforeRegVerify::getGatewayUrl( 'step_code' ),
-				$e->getMessage() ?: CBTxt::T( 'CBBEFOREREGVERIFY_ATTEMPT_STORE_FAILED', 'Failed to record verification attempt.' ),
+				CBTxt::T( 'CBBEFOREREGVERIFY_ATTEMPT_STORE_FAILED', 'Failed to record verification attempt.' ),
 				'error'
 			);
 		}
@@ -229,9 +234,11 @@ class CBplug_cbbeforeregverify extends cbPluginHandler
 		try {
 			CBBeforeRegVerify::issueResendCode( $email, (string) Application::Input()->getRequestIP() );
 		} catch ( \Throwable $e ) {
+			$this->logException( $e, 'resend_code' );
+
 			cbRedirect(
 				CBBeforeRegVerify::getGatewayUrl( 'step_code' ),
-				$e->getMessage() ?: CBTxt::T( 'CBBEFOREREGVERIFY_RESEND_FAILED', 'Unable to resend verification code right now.' ),
+				CBTxt::T( 'CBBEFOREREGVERIFY_RESEND_FAILED', 'Unable to resend verification code right now.' ),
 				'error'
 			);
 		}
@@ -277,6 +284,8 @@ class CBplug_cbbeforeregverify extends cbPluginHandler
 	 */
 	private function restartFlow(): void
 	{
+		$this->requireCsrf( 'step_email' );
+
 		$flowEmail	=	CBBeforeRegVerify::getFlowEmail();
 
 		if ( $flowEmail !== '' ) {
@@ -354,5 +363,24 @@ class CBplug_cbbeforeregverify extends cbPluginHandler
 				'codeLength'	=>	CBBeforeRegVerify::getCodeLength()
 			]
 		);
+	}
+
+	/**
+	 * @param \Throwable $exception
+	 * @param string     $context
+	 * @return void
+	 */
+	private function logException( \Throwable $exception, string $context ): void
+	{
+		$message	=	$context . ': ' . $exception->getMessage()
+				.	' in ' . $exception->getFile() . ':' . $exception->getLine();
+
+		if ( class_exists( Log::class ) ) {
+			Log::add( $message, Log::ERROR, 'cbbeforeregverify' );
+
+			return;
+		}
+
+		error_log( 'cbbeforeregverify: ' . $message );
 	}
 }

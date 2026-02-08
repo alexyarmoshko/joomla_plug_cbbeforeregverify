@@ -114,18 +114,19 @@ class UserTrigger extends \cbPluginHandler
 		}
 
 		$emailEscaped	=	htmlspecialchars( $verifiedEmail, ENT_QUOTES, 'UTF-8' );
-		$restartUrl	=	htmlspecialchars( CBBeforeRegVerify::getGatewayUrl( 'restart' ), ENT_QUOTES, 'UTF-8' );
+		$restartAction	=	htmlspecialchars( CBBeforeRegVerify::getGatewayUrl( 'restart' ), ENT_QUOTES, 'UTF-8' );
 		$restartText	=	htmlspecialchars( CBTxt::T( 'CBBEFOREREGVERIFY_RESTART', 'Use a different email' ), ENT_QUOTES, 'UTF-8' );
 		$restartHint	=	htmlspecialchars(
 			CBTxt::T( 'CBBEFOREREGVERIFY_RESTART_HINT', 'Need to sign up with another email address? Restart verification first.' ),
 			ENT_QUOTES,
 			'UTF-8'
 		);
+		$restartTokenInput	=	(string) Application::Session()->getFormTokenInput();
 		$restartInjected	=	false;
 
 		$return			=	(string) preg_replace_callback(
 			'/<input\b[^>]*\bname\s*=\s*(["\'])email\1[^>]*>/i',
-			static function( array $match ) use ( $emailEscaped, $restartUrl, $restartText, $restartHint, &$restartInjected ): string {
+			static function( array $match ) use ( $emailEscaped, $restartAction, $restartText, $restartHint, $restartTokenInput, &$restartInjected ): string {
 				$input	=	$match[0];
 
 				if ( preg_match( '/\btype\s*=\s*(["\'])hidden\1/i', $input ) ) {
@@ -145,9 +146,10 @@ class UserTrigger extends \cbPluginHandler
 				if ( ! $restartInjected ) {
 					$restartInjected	=	true;
 					$input			.=	'<div class="cbBeforeRegVerifyRestart mt-2">'
-							.	'<a href="' . $restartUrl . '" class="btn btn-outline-secondary btn-sm">'
-							.	$restartText
-							.	'</a>'
+							.	'<form action="' . $restartAction . '" method="post" class="cbBeforeRegVerifyRestartForm d-inline">'
+							.	'<button type="submit" class="btn btn-outline-secondary btn-sm">' . $restartText . '</button>'
+							.	$restartTokenInput
+							.	'</form>'
 							.	'<p class="small mt-1 mb-0">' . $restartHint . '</p>'
 							.	'</div>';
 				}
