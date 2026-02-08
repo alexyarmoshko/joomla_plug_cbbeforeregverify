@@ -37,6 +37,10 @@ Verification records are stored in a plugin-owned table with a two-field state m
 - [x] (2026-02-08) Implemented Milestone 7: added installer mail-template bootstrap (`createTemplate` only when missing) and runtime Joomla `MailTemplate` send flow with `cbNotification` fallback.
 - [x] (2026-02-08) Added installer provisioning for admin `administrator/language/overrides/en-GB.override.ini` labels so Mail Templates list shows readable title/description instead of raw `comprofiler_MAIL_*` constants.
 - [x] (2026-02-08) Adjusted installer to seed both lowercase and uppercase mail-template label keys (`comprofiler_MAIL_*` + `COMPROFILER_MAIL_*`) and write to both `en-GB` plus active admin language override files for Joomla language-key compatibility.
+- [x] (2026-02-08) Hardened restart flow against CSRF: replaced registration-page `restart` GET link with CSRF-protected POST form and enforced token validation in `restart` handler.
+- [x] (2026-02-08) Hardened gateway error handling: stopped exposing raw exception messages in user redirects and added server-side exception logging for submit/resend/attempt-store failures.
+- [x] (2026-02-08) Extended maintenance purge to include stale expired `pending` verification rows older than the purge threshold.
+- [x] (2026-02-08) Simplified maintenance purge criteria to status/outcome-agnostic stale-row cleanup with safeguard to retain unexpired `pending` rows.
 - [x] Implement verification persistence, lifecycle transitions, and TTL checks.
 - [x] Implement gateway screens and transitions.
 - [x] Implement CB integration and server-side enforcement.
@@ -85,7 +89,7 @@ Verification records are stored in a plugin-owned table with a two-field state m
   Rationale: This is a low-risk gateway control and stakeholder explicitly accepted a simpler fast hash approach.
   Date/Author: 2026-02-06 / Stakeholder
 
-- Decision: Require CSRF token validation on all form submissions (step-1 email, step-2 code, resend, cancel).
+- Decision: Require CSRF token validation on all form submissions and state-changing gateway actions (step-1 email, step-2 code, resend, cancel, restart).
   Rationale: Standard web security practice to prevent cross-site request forgery.
   Date/Author: 2026-02-06 / Review
 
@@ -116,6 +120,14 @@ Verification records are stored in a plugin-owned table with a two-field state m
 - Decision: Provide explicit restart action (`func=restart`) from the locked registration email state to clear verification session and restart verification.
   Rationale: Without a restart path, a previously verified email can stay sticky and block switching to a different address.
   Date/Author: 2026-02-07 / Stakeholder
+
+- Decision: Restart action must be submitted via POST with Joomla CSRF token validation.
+  Rationale: Prevents cross-site GET-triggered state reset of verification session.
+  Date/Author: 2026-02-08 / Review
+
+- Decision: Gateway catch blocks must not expose raw exception messages to end users; technical details should be logged server-side.
+  Rationale: Avoids leaking internal storage/mail/runtime details while preserving diagnostics for operators.
+  Date/Author: 2026-02-08 / Review
 
 - Decision: Override only `confirmed` during the registration lifecycle (`onBeforeUserRegistration`) when gateway verification is present and email matches session; do not modify any other registration fields.
   Rationale: Limits behavioral change to the exact registration transaction and a single field, minimizing compatibility risk and avoiding post-registration state mutation.
@@ -162,7 +174,7 @@ Validation run-through was completed on 2026-02-07 16:55 +00:00 with repository-
    Evidence: CSRF check + verified-email presence + mismatch rejection/redirect: `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/library/Trigger/UserTrigger.php:155`, `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/library/Trigger/UserTrigger.php:168`, `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/library/Trigger/UserTrigger.php:178`.
 6. CSRF enforcement.
    Result: Code-path pass.
-   Evidence: tokens rendered in all forms and checked in handlers: `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/templates/default/step_email.php:31`, `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/templates/default/step_code.php:34`, `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/component.cbbeforeregverify.php:293`.
+   Evidence: tokens rendered in gateway/restart forms and checked in handlers: `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/templates/default/step_email.php:31`, `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/templates/default/step_code.php:34`, `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/library/Trigger/UserTrigger.php:124`, `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/component.cbbeforeregverify.php:280`, `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/component.cbbeforeregverify.php:317`.
 7. Limiter toggle tests.
    Result: Implementation pass; threshold behavior pending runtime environment.
    Evidence: independent toggles wired for IP/email/resend/attempts: `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/library/CBBeforeRegVerify.php:264`, `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/library/CBBeforeRegVerify.php:294`, `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/library/CBBeforeRegVerify.php:324`, `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/library/CBBeforeRegVerify.php:501`.
@@ -171,13 +183,13 @@ Validation run-through was completed on 2026-02-07 16:55 +00:00 with repository-
    Evidence: failed attempts are inserted as `status=attempt`, `outcome=failed`; limiter check blocks afterward: `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/library/CBBeforeRegVerify.php:427`, `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/library/CBBeforeRegVerify.php:457`, `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/component.cbbeforeregverify.php:197`.
 9. Purge behavior.
    Result: Code-path pass; destructive DB assertion pending runtime environment.
-   Evidence: maintenance-on-init and purge query restricted to terminal outcomes older than threshold: `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/cbbeforeregverify.php:22`, `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/library/CBBeforeRegVerify.php:60`, `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/library/CBBeforeRegVerify.php:530`.
+   Evidence: maintenance-on-init and purge query remove stale rows by age regardless of status/outcome while retaining unexpired pending rows: `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/cbbeforeregverify.php:22`, `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/library/CBBeforeRegVerify.php:60`, `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/library/CBBeforeRegVerify.php:538`.
 10. Cancel redirect behavior.
    Result: Code-path pass.
    Evidence: cancel forms on both step-1 and step-2 post into common `cancel` handler; active row is cancelled where present and redirect goes to home: `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/templates/default/step_email.php:33`, `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/templates/default/step_code.php:42`, `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/component.cbbeforeregverify.php:248`.
 11. Restart from locked verified-email registration state.
     Result: Code-path pass and stakeholder runtime confirmation pass.
-    Evidence: registration form injects `Use a different email` control and routes to restart action; restart clears session and restarts at step-1: `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/library/Trigger/UserTrigger.php:117`, `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/component.cbbeforeregverify.php:49`, `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/component.cbbeforeregverify.php:278`.
+    Evidence: registration form injects `Use a different email` POST control with CSRF token; restart handler validates token, then clears session and restarts at step-1: `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/library/Trigger/UserTrigger.php:117`, `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/component.cbbeforeregverify.php:49`, `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/component.cbbeforeregverify.php:279`.
 12. Registration-time confirmed override.
     Result: Code-path pass; live runtime confirmation pending environment.
     Evidence: bootstrap registers `onBeforeUserRegistration`; handler sets only `confirmed=1` when verified-session email matches registration email: `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/cbbeforeregverify.php:29`, `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/library/Trigger/UserTrigger.php:217`, `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/library/Trigger/UserTrigger.php:235`.
@@ -188,6 +200,7 @@ Validation run-through was completed on 2026-02-07 16:55 +00:00 with repository-
 ### Command-Level Validation Evidence
 
 - PHP syntax checks passed for all plugin PHP files using `php -l`.
+- Gateway exception handling now logs server-side details and returns generic localized redirect errors in component catches.
 - Packaging workflow passed: `make info` and `make dist`.
 - Generated artifacts validated:
   - `installation/plug_cbbeforeregverify-v0-1-0.zip`
@@ -259,7 +272,7 @@ Acceptance: email receives code and no user row exists in `#__users` or `#__comp
 
 ### Milestone 3: Code Verification, Resend, Cancel, Expiry
 
-Implement step-2 submit/resend/cancel. All step forms (`submit_email`, `submit_code`, `resend`, `cancel`) must include and validate a Joomla CSRF token.
+Implement step-2 submit/resend/cancel/restart. All step forms and state-changing actions (`submit_email`, `submit_code`, `resend`, `cancel`, `restart`) must include and validate a Joomla CSRF token.
 
 Rules:
 
@@ -278,7 +291,7 @@ After verification, redirect user to regular CB registration page.
 Rules:
 
 - Email field is prefilled from verified session and rendered read-only.
-- Registration UI includes explicit `Use a different email` control that routes to restart action and clears verification session state.
+- Registration UI includes explicit `Use a different email` POST control with Joomla CSRF token that routes to restart action and clears verification session state.
 - On save request, enforce that posted email matches verified session email. All form enforcement must validate a Joomla CSRF token.
 - If verified state is absent or mismatched, reject save and redirect to step-1.
 - After successful registration, clear verification session markers.
@@ -298,7 +311,7 @@ Default thresholds:
 - Resend cooldown: 60 seconds.
 - Code attempts per email: 8 (calculated from rows where `status = attempt` and `outcome = failed` for that email, using `sent_at + ttl` window logic; no per-row attempt counter).
 
-Implement row purge: on plugin initialization, delete rows where outcome is `verified`, `cancelled`, or `failed` and `modified_at` is older than `purge_after_days`. The `purge_after_days` configuration value must be at least `ceil(verification_ttl_sec / 86400)` days. Running this on initialization is accepted for this plugin because registration volume is expected to be low.
+Implement row purge: on plugin initialization, delete rows with `modified_at` older than `purge_after_days` regardless of status/outcome, except keep `pending` rows where `sent_at + ttl > now` (still active). The `purge_after_days` configuration value must be at least `ceil(verification_ttl_sec / 86400)` days. Running this on initialization is accepted for this plugin because registration volume is expected to be low.
 
 Known limitation: IP-based rate limiting uses the full IP address. IPv6 clients can rotate addresses within their allocated prefix (commonly /64), which can allow bypassing per-IP rate limits. This is accepted for the initial implementation.
 
@@ -374,7 +387,7 @@ Hook behavior summary:
 
 - `onBeforeRegisterFormRequest`: route guest to gateway start unless already verified for current flow.
 - `onBeforeRegisterForm`: if gateway step is active, return gateway HTML instead of default registration UI.
-- `onBeforeRegisterFormDisplay` and/or `onAfterRegisterFormDisplay`: enforce read-only verified email rendering and inject restart control (`Use a different email`) for verified-session state.
+- `onBeforeRegisterFormDisplay` and/or `onAfterRegisterFormDisplay`: enforce read-only verified email rendering and inject CSRF-protected restart control (`Use a different email`) for verified-session state.
 - `onBeforeSaveUserRegistrationRequest`: block any registration save unless verified session state exists and matches submitted email.
 - `onBeforeUserRegistration`: when verified-session email matches registration email, set only `confirmed=1` in-memory before persistence.
 - `onAfterSaveUserRegistration`: clear verification session state after successful registration.
@@ -429,7 +442,7 @@ Core settings:
 - `verification_ttl_sec` int default 900.
 - `code_length` int default 6. Changing this value does not affect existing active verification codes.
 - `secret` text, configurable secret used in `sha256(code + secret)` for code hashing. Must be set to a non-empty value before the gateway is enabled.
-- `purge_after_days` int default 30. Minimum value must be at least `ceil(verification_ttl_sec / 86400)`. Rows with outcome `verified`, `cancelled`, or `failed` and `modified_at` older than this threshold are deleted on plugin initialization.
+- `purge_after_days` int default 30. Minimum value must be at least `ceil(verification_ttl_sec / 86400)`. Rows with `modified_at` older than this threshold are deleted on plugin initialization regardless of status/outcome, except active `pending` rows (`sent_at + ttl > now`) are retained.
 
 Rate limiter settings (all independently switchable):
 
@@ -561,7 +574,7 @@ All commands run from repository root.
 11. Restart from locked verified registration state.
 
 - Reach CB registration with verified email prefilled and read-only.
-- Trigger `Use a different email`.
+- Trigger `Use a different email` via POST with valid CSRF token.
 - Verification session keys are cleared and user is returned to step-1 with restart notice.
 
 12. Registration-time confirmed override.
@@ -637,7 +650,7 @@ Recommended service methods:
 - `cancelRequest(VerificationTable $row, string $reason): bool` — sets outcome to `cancelled` with note
 - `markVerified(VerificationTable $row): bool` — sets outcome to `verified`
 - `canProceedByRateLimits(string $email, string $ip): array`
-- `purgeOldRows(int $days): int` — deletes rows with terminal outcome older than threshold
+- `purgeOldRows(int $days): int` - deletes stale rows older than threshold regardless of status/outcome, while retaining unexpired pending rows
 
 ## Revision Notes
 
@@ -664,3 +677,11 @@ Revised on 2026-02-08 to implement Milestone 7 in code. Changes: (1) installer n
 Revised on 2026-02-08 to document and address Mail Templates label-key rendering. Changes: (1) recorded finding that missing language keys display as raw `comprofiler_MAIL_*` constants, (2) added installer provisioning of admin language override entries in `administrator/language/overrides/en-GB.override.ini` for template title/description/short labels, and (3) extended scenario 13 validation criteria to assert readable label rendering.
 
 Revised on 2026-02-08 to harden language-key compatibility. Changes: (1) after observing unresolved labels post-install, installer override provisioning was expanded to write both lowercase and uppercase mail-template label keys, (2) installer now writes missing keys for both `en-GB` and the active admin language tag override file, and (3) this preserves non-destructive behavior by adding only missing keys.
+
+Revised on 2026-02-08 to harden restart action CSRF handling. Changes: (1) registration-page restart control was changed from GET link to POST form with token input, (2) `restart` handler now enforces `checkFormToken()` before mutating verification session state, and (3) CSRF-related milestones/validation notes were updated to include restart explicitly.
+
+Revised on 2026-02-08 to harden user-facing error handling. Changes: (1) component catch blocks for email submit/resend/failed-attempt store no longer echo raw exception messages to users, (2) those paths now return generic localized error messages, and (3) detailed exceptions are logged server-side through Joomla Log with `error_log` fallback.
+
+Revised on 2026-02-08 to improve maintenance cleanup scope. Changes: `purgeOldRows()` now deletes stale expired `pending` rows (status `sent`/`resent`, `sent_at + ttl <= now`) older than the purge threshold in addition to terminal outcomes.
+
+Revised on 2026-02-08 to simplify purge criteria. Changes: `purgeOldRows()` now purges stale rows by age regardless of status/outcome using `modified_at < threshold`, while retaining unexpired `pending` rows (`sent_at + ttl > now`) as the only exception.

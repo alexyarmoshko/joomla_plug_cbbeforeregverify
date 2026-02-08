@@ -14,6 +14,7 @@ use CBLib\Application\Application;
 use CBLib\Language\CBTxt;
 use CBLib\Registry\Registry;
 use Joomla\CMS\Factory;
+use Joomla\CMS\Log\Log;
 use Joomla\CMS\Mail\MailTemplate;
 
 \defined( 'CBLIB' ) or die();
@@ -443,11 +444,15 @@ class CBBeforeRegVerify
 		$row->set( 'note', 'failed_code' );
 
 		if ( $row->getError() || ( ! $row->check() ) ) {
-			throw new \RuntimeException( $row->getError() ?: CBTxt::T( 'CBBEFOREREGVERIFY_ATTEMPT_STORE_FAILED', 'Failed to record verification attempt.' ) );
+			self::logInternalError( 'record_failed_attempt_check', (string) $row->getError() );
+
+			throw new \RuntimeException( CBTxt::T( 'CBBEFOREREGVERIFY_ATTEMPT_STORE_FAILED', 'Failed to record verification attempt.' ) );
 		}
 
 		if ( $row->getError() || ( ! $row->store() ) ) {
-			throw new \RuntimeException( $row->getError() ?: CBTxt::T( 'CBBEFOREREGVERIFY_ATTEMPT_STORE_FAILED', 'Failed to record verification attempt.' ) );
+			self::logInternalError( 'record_failed_attempt_store', (string) $row->getError() );
+
+			throw new \RuntimeException( CBTxt::T( 'CBBEFOREREGVERIFY_ATTEMPT_STORE_FAILED', 'Failed to record verification attempt.' ) );
 		}
 
 		return $row;
@@ -535,14 +540,14 @@ class CBBeforeRegVerify
 		global $_CB_database;
 
 		$days		=	max( 1, $days );
+		$now		=	Application::Database()->getUtcDateTime();
 		$threshold	=	Application::Date( 'now', 'UTC' )->modify( '-' . $days . ' DAYS' )->format( 'Y-m-d H:i:s' );
 
 		$query		=	'DELETE FROM ' . $_CB_database->NameQuote( '#__comprofiler_plugin_beforeregverify' )
-					.	"\n WHERE " . $_CB_database->NameQuote( 'outcome' ) . " IN ( "
-					.	$_CB_database->Quote( VerificationTable::OUTCOME_VERIFIED ) . ', '
-					.	$_CB_database->Quote( VerificationTable::OUTCOME_CANCELLED ) . ', '
-					.	$_CB_database->Quote( VerificationTable::OUTCOME_FAILED ) . ' )'
-					.	"\n AND " . $_CB_database->NameQuote( 'modified_at' ) . " < " . $_CB_database->Quote( $threshold );
+					.	"\n WHERE " . $_CB_database->NameQuote( 'modified_at' ) . " < " . $_CB_database->Quote( $threshold )
+					.	"\n AND ( " . $_CB_database->NameQuote( 'outcome' ) . " <> " . $_CB_database->Quote( VerificationTable::OUTCOME_PENDING )
+					.	"\n OR DATE_ADD(" . $_CB_database->NameQuote( 'sent_at' ) . ', INTERVAL ' . $_CB_database->NameQuote( 'ttl' ) . ' SECOND) <= ' . $_CB_database->Quote( $now )
+					.	' )';
 		$_CB_database->setQuery( $query );
 		$_CB_database->query();
 
@@ -596,11 +601,15 @@ class CBBeforeRegVerify
 		$row->set( 'note', null );
 
 		if ( $row->getError() || ( ! $row->check() ) ) {
-			throw new \RuntimeException( $row->getError() ?: CBTxt::T( 'CBBEFOREREGVERIFY_ISSUE_FAILED', 'Failed to create verification request.' ) );
+			self::logInternalError( 'issue_code_check', (string) $row->getError() );
+
+			throw new \RuntimeException( CBTxt::T( 'CBBEFOREREGVERIFY_ISSUE_FAILED', 'Failed to create verification request.' ) );
 		}
 
 		if ( $row->getError() || ( ! $row->store() ) ) {
-			throw new \RuntimeException( $row->getError() ?: CBTxt::T( 'CBBEFOREREGVERIFY_ISSUE_FAILED', 'Failed to create verification request.' ) );
+			self::logInternalError( 'issue_code_store', (string) $row->getError() );
+
+			throw new \RuntimeException( CBTxt::T( 'CBBEFOREREGVERIFY_ISSUE_FAILED', 'Failed to create verification request.' ) );
 		}
 
 		if ( ! self::sendVerificationEmail( $email, $code, $row->getInt( 'ttl', self::getVerificationTtl() ) ) ) {
@@ -812,5 +821,27 @@ class CBBeforeRegVerify
 		$sentAt	=	$_CB_database->loadResult();
 
 		return ( $sentAt ? (string) $sentAt : null );
+	}
+
+	/**
+	 * @param string $context
+	 * @param string $details
+	 * @return void
+	 */
+	private static function logInternalError( string $context, string $details = '' ): void
+	{
+		$message	=	$context;
+
+		if ( $details !== '' ) {
+			$message	.=	': ' . $details;
+		}
+
+		if ( class_exists( Log::class ) ) {
+			Log::add( $message, Log::ERROR, 'cbbeforeregverify' );
+
+			return;
+		}
+
+		error_log( 'cbbeforeregverify: ' . $message );
 	}
 }
