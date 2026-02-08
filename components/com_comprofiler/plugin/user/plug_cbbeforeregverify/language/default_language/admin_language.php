@@ -16,10 +16,6 @@ defined( 'CBLIB' ) or die();
 
 return array(
 	'CB_BEFORE_REGISTRATION_VERIFY'					=>	'CB Before Registration Verify',
-	'CBBEFOREREGVERIFY_MANIFEST_NAME'					=>	'Yak Shaver CB Before Registration Email Verify',
-	'CBBEFOREREGVERIFY_MANIFEST_DESCRIPTION'			=>	'Pre-registration email verification gateway for CB user registration form.',
-	'CBBEFOREREGVERIFY_MANIFEST_COPYRIGHT'				=>	'(C) 2026 Yak Shaver https://www.kayakshaver.com',
-	'CBBEFOREREGVERIFY_MANIFEST_LICENSE'				=>	'GNU General Public License version 2 or later',
 	'CBBEFOREREGVERIFY_TAB_GENERAL'					=>	'General',
 	'CBBEFOREREGVERIFY_TAB_IP_RATE_LIMITS'				=>	'IP Rate Limits',
 	'CBBEFOREREGVERIFY_TAB_EMAIL_RATE_LIMITS'			=>	'Email Rate Limits',

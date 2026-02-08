@@ -63,6 +63,9 @@ Verification records are stored in a plugin-owned table with a two-field state m
 - Observation: When mail-template label language keys are missing, `System -> Mail Templates` shows raw key names (e.g. `comprofiler_MAIL_cbbeforeregverify_verification_code_TITLE`) instead of readable labels.
   Evidence: Runtime observation from test-site UI after template creation.
 
+- Observation: During CB plugin installation flow, manifest header fields such as `<name>` and `<description>` are displayed before language-key resolution, so key tokens appear literally in install success messages.
+  Evidence: Runtime installation output showed `CBBEFOREREGVERIFY_MANIFEST_NAME` and `CBBEFOREREGVERIFY_MANIFEST_DESCRIPTION` instead of translated text when keys were used in manifest header.
+
 ## Decision Log
 
 - Decision: Use plugin name `plug_cbbeforeregverify` and class/service naming `CBBeforeRegVerify`.
