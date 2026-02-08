@@ -85,6 +85,12 @@ class CBplug_cbbeforeregverify extends cbPluginHandler
 
 		try {
 			CBBeforeRegVerify::issueInitialCode( $email, (string) Application::Input()->getRequestIP() );
+		} catch ( \DomainException $e ) {
+			cbRedirect(
+				CBBeforeRegVerify::getGatewayUrl( 'step_email' ),
+				$e->getMessage() ?: CBTxt::T( 'CBBEFOREREGVERIFY_RATE_LIMITED', 'Too many verification requests. Please try again later.' ),
+				'error'
+			);
 		} catch ( \Throwable $e ) {
 			$this->logException( $e, 'submit_email' );
 
@@ -233,6 +239,12 @@ class CBplug_cbbeforeregverify extends cbPluginHandler
 
 		try {
 			CBBeforeRegVerify::issueResendCode( $email, (string) Application::Input()->getRequestIP() );
+		} catch ( \DomainException $e ) {
+			cbRedirect(
+				CBBeforeRegVerify::getGatewayUrl( 'step_code' ),
+				$e->getMessage() ?: CBTxt::T( 'CBBEFOREREGVERIFY_RATE_LIMITED', 'Too many verification requests. Please try again later.' ),
+				'error'
+			);
 		} catch ( \Throwable $e ) {
 			$this->logException( $e, 'resend_code' );
 

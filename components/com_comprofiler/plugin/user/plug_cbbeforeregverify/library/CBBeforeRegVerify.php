@@ -581,7 +581,7 @@ class CBBeforeRegVerify
 		$rateLimit	=	self::canProceedByRateLimits( $email, $ip, $isResend );
 
 		if ( ! $rateLimit['allowed'] ) {
-			throw new \RuntimeException( $rateLimit['message'] ?: CBTxt::T( 'CBBEFOREREGVERIFY_RATE_LIMITED', 'Too many verification requests. Please try again later.' ) );
+			throw new \DomainException( $rateLimit['message'] ?: CBTxt::T( 'CBBEFOREREGVERIFY_RATE_LIMITED', 'Too many verification requests. Please try again later.' ) );
 		}
 
 		self::softCancelPendingRows( $email, 'replaced_by_new_issue' );

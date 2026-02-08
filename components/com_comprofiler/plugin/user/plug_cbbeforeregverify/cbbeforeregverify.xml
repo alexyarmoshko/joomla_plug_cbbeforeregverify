@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <cbinstall version="1.0.0" type="plugin" group="user">
-	<name>CBBEFOREREGVERIFY_MANIFEST_NAME</name>
+	<name>Yak Shaver CB Before Registration Email Verify</name>
 	<author>Yak Shaver</author>
 	<creationDate>2026-02</creationDate>
-	<copyright>CBBEFOREREGVERIFY_MANIFEST_COPYRIGHT</copyright>
-	<license>CBBEFOREREGVERIFY_MANIFEST_LICENSE</license>
+	<copyright>(C) 2026 Yak Shaver https://www.kayakshaver.com</copyright>
+	<license>GNU General Public License version 2 or later</license>
 	<authorEmail>me@kayakshaver.com</authorEmail>
-	<description>CBBEFOREREGVERIFY_MANIFEST_DESCRIPTION</description>
+	<description>Pre-registration email verification gateway for CB user registration form.</description>
 	<version>2.11.0</version>
 	<release>0.1.0</release>
 	<scriptfile>install.cbbeforeregverify.php</scriptfile>
