@@ -18,7 +18,7 @@ use CBLib\Language\CBTxt;
 class UserTrigger extends \cbPluginHandler
 {
 	/**
-	 * Milestone 1 scaffold: registration gateway behavior is implemented in the next milestone.
+	 * Sync flow email from verified session before registration form path.
 	 *
 	 * @param string|null $msg
 	 * @param string      $emailpass
@@ -39,7 +39,7 @@ class UserTrigger extends \cbPluginHandler
 	}
 
 	/**
-	 * Milestone 1 scaffold: registration gateway behavior is implemented in the next milestone.
+	 * Replace registration UI with gateway step-email form when no verified session exists.
 	 *
 	 * @param string      $option
 	 * @param string      $emailpass
@@ -66,7 +66,7 @@ class UserTrigger extends \cbPluginHandler
 	}
 
 	/**
-	 * Milestone 1 scaffold: registration gateway behavior is implemented in the next milestone.
+	 * Prefill and lock the email field to the verified address before form display.
 	 *
 	 * @param mixed $user
 	 * @param mixed $regErrorMSG
@@ -90,11 +90,13 @@ class UserTrigger extends \cbPluginHandler
 			$user->email	=	$verifiedEmail;
 		}
 
+		// CB reads the email field value from $_POST during registration form rendering;
+		// setting it here ensures the verified address populates the form input.
 		$_POST['email']	=	$verifiedEmail;
 	}
 
 	/**
-	 * Milestone 1 scaffold: registration gateway behavior is implemented in the next milestone.
+	 * Inject verified email as read-only value and add restart control after form display.
 	 *
 	 * @param mixed $user
 	 * @param mixed $tabContent
@@ -161,7 +163,7 @@ class UserTrigger extends \cbPluginHandler
 	}
 
 	/**
-	 * Milestone 1 scaffold: registration gateway behavior is implemented in the next milestone.
+	 * Block registration save unless verified session exists and email matches.
 	 *
 	 * @param string|null $msg
 	 * @return void
@@ -205,6 +207,8 @@ class UserTrigger extends \cbPluginHandler
 			);
 		}
 
+		// CB re-reads $_POST['email'] during the save pipeline; overwriting it here
+		// prevents a tampered POST value from diverging from the verified address.
 		$_POST['email']	=	$verifiedEmail;
 		CBBeforeRegVerify::setFlowEmail( $verifiedEmail );
 	}
@@ -284,7 +288,7 @@ class UserTrigger extends \cbPluginHandler
 	}
 
 	/**
-	 * Milestone 1 scaffold: registration gateway behavior is implemented in the next milestone.
+	 * Clear verification session state after successful registration.
 	 *
 	 * @param mixed $user
 	 * @param mixed $messagesToUser

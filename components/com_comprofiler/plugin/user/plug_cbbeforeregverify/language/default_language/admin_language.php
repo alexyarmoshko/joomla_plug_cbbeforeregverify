@@ -29,7 +29,7 @@ return array(
 	'CBBEFOREREGVERIFY_PARAM_CODE_LENGTH_LABEL'			=>	'Code Length',
 	'CBBEFOREREGVERIFY_PARAM_CODE_LENGTH_DESC'			=>	'Numeric code length for new verification requests.',
 	'CBBEFOREREGVERIFY_PARAM_SECRET_LABEL'				=>	'Verification Secret',
-	'CBBEFOREREGVERIFY_PARAM_SECRET_DESC'				=>	'Secret used for verification code hashing as sha256(code + secret). Must be non-empty when gateway is enabled.',
+	'CBBEFOREREGVERIFY_PARAM_SECRET_DESC'				=>	'Secret key used for HMAC-SHA256 verification code hashing. Must be non-empty when gateway is enabled.',
 	'CBBEFOREREGVERIFY_PARAM_PURGE_AFTER_DAYS_LABEL'		=>	'Purge After (days)',
 	'CBBEFOREREGVERIFY_PARAM_PURGE_AFTER_DAYS_DESC'		=>	'Delete stale rows older than this many days while retaining unexpired pending requests.',
 	'CBBEFOREREGVERIFY_PARAM_RL_IP_ENABLED_LABEL'			=>	'IP Limits Enabled',
