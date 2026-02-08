@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cbinstall version="1.0.0" type="plugin" group="user">
+	<name>Yak Shaver CB Before Registration Email Verify</name>
+	<author>Yak Shaver</author>
+	<creationDate>2026-02</creationDate>
+	<copyright>(C) 2026 Yak Shaver https://www.kayakshaver.com</copyright>
+	<license>GNU General Public License version 2 or later</license>
+	<authorEmail>me@kayakshaver.com</authorEmail>
+	<description>Pre-registration email verification gateway for CB user registration form.</description>
+	<version>2.11.0</version>
+	<release>0.1.0</release>
+	<scriptfile>install.cbbeforeregverify.php</scriptfile>
+	<files>
+		<filename plugin="cbbeforeregverify">cbbeforeregverify.php</filename>
+		<filename>component.cbbeforeregverify.php</filename>
+		<filename>cbbeforeregverify.xml</filename>
+		<filename>install.cbbeforeregverify.php</filename>
+		<filename>index.html</filename>
+		<foldername>language</foldername>
+		<foldername>library</foldername>
+		<foldername>templates</foldername>
+	</files>
+	<params>
+		<tabpane name="beforeregverify">
+			<tabpanetab label="General">
+				<param name="gateway_enabled" type="yesno" default="1" label="Gateway Enabled" description="Enable or disable the pre-registration verification gateway." yes="Enable" no="Disable" />
+				<param name="verification_ttl_sec" type="int" default="900" size="10" label="Verification TTL (seconds)" description="Number of seconds a verification request remains valid after issuance." />
+				<param name="code_length" type="int" default="6" size="5" label="Code Length" description="Numeric code length for new verification requests." />
+				<param name="secret" type="text" default="" size="60" label="Verification Secret" description="Secret used for verification code hashing as sha256(code + secret). Must be non-empty when gateway is enabled." />
+				<param name="purge_after_days" type="int" default="30" size="5" label="Purge After (days)" description="Delete terminal rows (verified, cancelled, failed) older than this many days." />
+			</tabpanetab>
+			<tabpanetab label="IP Rate Limits">
+				<param name="rl_ip_enabled" type="yesno" default="1" label="IP Limits Enabled" description="Enable or disable IP based send limiting." yes="Enable" no="Disable" />
+				<param name="rl_ip_short_window_min" type="int" default="15" size="5" label="IP Short Window (minutes)" description="Short IP limiter window length in minutes." />
+				<param name="rl_ip_short_max" type="int" default="5" size="5" label="IP Short Window Max" description="Maximum sends per IP in the short window." />
+				<param name="rl_ip_day_window_hours" type="int" default="24" size="5" label="IP Day Window (hours)" description="Day IP limiter window length in hours." />
+				<param name="rl_ip_day_max" type="int" default="25" size="5" label="IP Day Window Max" description="Maximum sends per IP in the day window." />
+			</tabpanetab>
+			<tabpanetab label="Email Rate Limits">
+				<param name="rl_email_enabled" type="yesno" default="1" label="Email Limits Enabled" description="Enable or disable email based send limiting." yes="Enable" no="Disable" />
+				<param name="rl_email_short_window_min" type="int" default="30" size="5" label="Email Short Window (minutes)" description="Short email limiter window length in minutes." />
+				<param name="rl_email_short_max" type="int" default="3" size="5" label="Email Short Window Max" description="Maximum sends per email in the short window." />
+				<param name="rl_email_day_window_hours" type="int" default="24" size="5" label="Email Day Window (hours)" description="Day email limiter window length in hours." />
+				<param name="rl_email_day_max" type="int" default="10" size="5" label="Email Day Window Max" description="Maximum sends per email in the day window." />
+			</tabpanetab>
+			<tabpanetab label="Resend and Attempts">
+				<param name="rl_resend_enabled" type="yesno" default="1" label="Resend Cooldown Enabled" description="Enable or disable resend cooldown limiting." yes="Enable" no="Disable" />
+				<param name="rl_resend_cooldown_sec" type="int" default="60" size="5" label="Resend Cooldown (seconds)" description="Minimum delay between resend requests for the same email." />
+				<param name="rl_attempts_enabled" type="yesno" default="1" label="Attempts Limit Enabled" description="Enable or disable failed verification attempt limiting." yes="Enable" no="Disable" />
+				<param name="rl_attempts_max" type="int" default="8" size="5" label="Failed Attempts Max" description="Maximum failed code submissions per email in the active attempt window." />
+			</tabpanetab>
+		</tabpane>
+	</params>
+	<database version="1">
+		<table name="#__comprofiler_plugin_beforeregverify" class="\CB\Plugin\BeforeRegVerify\Table\VerificationTable" strict="true" drop="never">
+			<columns strict="true" drop="never">
+				<column name="id" type="sql:int(11)" unsigned="true" auto_increment="1" />
+				<column name="email" type="sql:varchar(255)" />
+				<column name="code_hash" type="sql:varchar(255)" null="true" />
+				<column name="status" type="sql:varchar(16)" />
+				<column name="outcome" type="sql:varchar(16)" />
+				<column name="ttl" type="sql:int(10)" unsigned="true" />
+				<column name="sent_at" type="sql:datetime" />
+				<column name="modified_at" type="sql:datetime" />
+				<column name="request_ip" type="sql:varchar(45)" null="true" />
+				<column name="note" type="sql:text" null="true" />
+			</columns>
+			<indexes strict="true" drop="always">
+				<index name="PRIMARY" type="primary">
+					<column name="id" />
+				</index>
+				<index name="email_outcome">
+					<column name="email" />
+					<column name="outcome" />
+				</index>
+				<index name="email_status_outcome_sent_at">
+					<column name="email" />
+					<column name="status" />
+					<column name="outcome" />
+					<column name="sent_at" />
+				</index>
+				<index name="outcome">
+					<column name="outcome" />
+				</index>
+				<index name="sent_at">
+					<column name="sent_at" />
+				</index>
+				<index name="modified_at">
+					<column name="modified_at" />
+				</index>
+				<index name="request_ip_sent_at">
+					<column name="request_ip" />
+					<column name="sent_at" />
+				</index>
+			</indexes>
+			<engine type="InnoDB" sameastable="#__comprofiler" strict="updatewithtable" />
+		</table>
+	</database>
+</cbinstall>
