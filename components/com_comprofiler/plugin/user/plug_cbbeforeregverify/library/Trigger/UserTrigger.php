@@ -147,11 +147,21 @@ class UserTrigger extends \cbPluginHandler
 
 				if ( ! $restartInjected ) {
 					$restartInjected	=	true;
-					$input			.=	'<div class="cbBeforeRegVerifyRestart mt-2">'
-							.	'<form action="' . $restartAction . '" method="post" class="cbBeforeRegVerifyRestartForm d-inline">'
-							.	'<button type="submit" class="btn btn-outline-secondary btn-sm">' . $restartText . '</button>'
-							.	$restartTokenInput
-							.	'</form>'
+
+					// Extract token name and value from the hidden input for JS use.
+					$tokenName	=	'';
+					$tokenValue	=	'';
+					if (
+						preg_match( '/name\s*=\s*["\']([^"\']+)["\']/', $restartTokenInput, $nameMatch )
+						&& preg_match( '/value\s*=\s*["\']([^"\']*)["\']/', $restartTokenInput, $valueMatch )
+					) {
+						$tokenName	=	htmlspecialchars( $nameMatch[1], ENT_QUOTES, 'UTF-8' );
+						$tokenValue	=	htmlspecialchars( $valueMatch[1], ENT_QUOTES, 'UTF-8' );
+					}
+
+					// Build and submit a standalone POST form to avoid nested-form stripping.
+					$input	.=	'<div class="cbBeforeRegVerifyRestart mt-2">'
+							.	'<button type="button" class="btn btn-outline-secondary btn-sm" onclick="(function(){var f=document.createElement(\'form\');f.method=\'post\';f.action=\'' . $restartAction . '\';var t=document.createElement(\'input\');t.type=\'hidden\';t.name=\'' . $tokenName . '\';t.value=\'' . $tokenValue . '\';f.appendChild(t);document.body.appendChild(f);f.submit();})();return false;">' . $restartText . '</button>'
 							.	'<p class="small mt-1 mb-0">' . $restartHint . '</p>'
 							.	'</div>';
 				}
