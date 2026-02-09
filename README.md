@@ -1,4 +1,4 @@
-# CB Before Registration Verify
+# Yak Shaver CB Before Registration Email Verify
 
 ## Overview
 
