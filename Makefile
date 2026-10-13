@@ -1,8 +1,7 @@
 # Reproducible packaging for plug_cbbeforeregverify: the ZIP bytes depend only on the
 # packaged files and one timestamp, never on the machine that built it, so a release can be
 # rebuilt from its tag and still hash to the sha256 published for it.
-# Derived from the ys_toolbox Makefile template for Joomla extensions; the workflow and its
-# rationale are in README.md, section "Build".
+# The workflow and its rationale are in README.md, section "Build".
 #
 # Two things differ from a stock Joomla extension, both forced by the CB manifest:
 #

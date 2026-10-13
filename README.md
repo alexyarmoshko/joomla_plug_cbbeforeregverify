@@ -94,7 +94,7 @@ When you add a file to the plugin, add it to `PACKAGE_FILES` too, or `make lint`
 
 `release` and `dist_release` accept only `INSTALL_DIR` and `BUILD_DIR` on the command line, and stop if any other build variable is overridden.
 
-`tools/jzip.php` is a copy of `src/jzip/jzip.php` from the `ys_toolbox` repository. Make fixes there and copy the file back unchanged.
+`tools/jzip.php` is the build's deterministic ZIP writer. It isn't shipped in the package.
 
 ### Releasing
 
