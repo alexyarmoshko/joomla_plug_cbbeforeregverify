@@ -10,18 +10,19 @@
 use CB\Database\Table\PluginTable;
 use Joomla\CMS\Factory;
 use Joomla\CMS\Mail\MailTemplate;
+use Joomla\Database\DatabaseInterface;
 
 if ( ! ( defined( '_VALID_CB' ) || defined( '_JEXEC' ) || defined( '_VALID_MOS' ) ) ) { die( 'Direct Access to this location is not allowed.' ); }
 
 class cbbeforeregverifyInstaller
 {
 	private const MAIL_TEMPLATE_KEY			=	'comprofiler.cbbeforeregverify.verification_code';
-	private const MAIL_TEMPLATE_TITLE_KEY	=	'comprofiler_MAIL_cbbeforeregverify_verification_code_TITLE';
-	private const MAIL_TEMPLATE_DESC_KEY	=	'comprofiler_MAIL_cbbeforeregverify_verification_code_DESC';
-	private const MAIL_TEMPLATE_SHORT_KEY	=	'comprofiler_MAIL_cbbeforeregverify_verification_code_SHORT';
-	private const MAIL_TEMPLATE_TITLE_KEY_UC	=	'COMPROFILER_MAIL_CBBEFOREREGVERIFY_VERIFICATION_CODE_TITLE';
-	private const MAIL_TEMPLATE_DESC_KEY_UC		=	'COMPROFILER_MAIL_CBBEFOREREGVERIFY_VERIFICATION_CODE_DESC';
-	private const MAIL_TEMPLATE_SHORT_KEY_UC	=	'COMPROFILER_MAIL_CBBEFOREREGVERIFY_VERIFICATION_CODE_SHORT';
+	// Joomla's mail editor builds its insert buttons from these names, so they must match the body placeholders.
+	private const MAIL_TEMPLATE_TAGS		=	[ 'code', 'minutes' ];
+	// Joomla uppercases language keys when it loads them, so one spelling is enough.
+	private const MAIL_TEMPLATE_TITLE_KEY	=	'COMPROFILER_MAIL_CBBEFOREREGVERIFY_VERIFICATION_CODE_TITLE';
+	private const MAIL_TEMPLATE_DESC_KEY	=	'COMPROFILER_MAIL_CBBEFOREREGVERIFY_VERIFICATION_CODE_DESC';
+	private const MAIL_TEMPLATE_SHORT_KEY	=	'COMPROFILER_MAIL_CBBEFOREREGVERIFY_VERIFICATION_CODE_SHORT';
 	private const DEFAULT_LANGUAGE_TAG	=	'en-GB';
 
 	/**
@@ -35,6 +36,7 @@ class cbbeforeregverifyInstaller
 	public function postflight( string $method, cbInstallerPlugin $installer, PluginTable $plugin, $newRelease, $currentRelease ): bool
 	{
 		$this->ensureMailTemplate();
+		$this->fixMailTemplateTags();
 		$this->ensureMailTemplateLanguageOverrides();
 
 		return true;
@@ -58,12 +60,54 @@ class cbbeforeregverifyInstaller
 				self::MAIL_TEMPLATE_KEY,
 				'Your verification code',
 				'Your verification code is {CODE}. This code expires in {MINUTES} minute(s).',
-				[
-					'CODE'		=>	'Verification code',
-					'MINUTES'	=>	'Minutes until expiration'
-				],
+				self::MAIL_TEMPLATE_TAGS,
 				'<p>Your verification code is <strong>{CODE}</strong>.</p><p>This code expires in {MINUTES} minute(s).</p>'
 			);
+		} catch ( \Throwable $e ) {
+			// Keep installation non-blocking if mail templates are unavailable.
+		}
+	}
+
+	/**
+	 * Releases up to 0.1.1 stored the tags as a name => label map, which made the mail
+	 * editor insert {VERIFICATION CODE} instead of {CODE}. Rewrite only the tag list;
+	 * subject and body stay as the admin left them.
+	 *
+	 * @return void
+	 */
+	private function fixMailTemplateTags(): void
+	{
+		try {
+			$db		=	Factory::getContainer()->get( DatabaseInterface::class );
+			$key	=	self::MAIL_TEMPLATE_KEY;
+			$query	=	$db->createQuery()
+						->select( $db->quoteName( [ 'language', 'params' ] ) )
+						->from( $db->quoteName( '#__mail_templates' ) )
+						->where( $db->quoteName( 'template_id' ) . ' = :key' )
+						->bind( ':key', $key );
+			$rows	=	$db->setQuery( $query )->loadObjectList();
+
+			foreach ( $rows as $row ) {
+				$params	=	json_decode( (string) $row->params, true );
+
+				if ( ( ! \is_array( $params ) ) || ( ! isset( $params['tags'] ) ) || ( $params['tags'] === self::MAIL_TEMPLATE_TAGS ) ) {
+					continue;
+				}
+
+				$params['tags']	=	self::MAIL_TEMPLATE_TAGS;
+				$json			=	json_encode( $params );
+				$language		=	(string) $row->language;
+				$update			=	$db->createQuery()
+									->update( $db->quoteName( '#__mail_templates' ) )
+									->set( $db->quoteName( 'params' ) . ' = :params' )
+									->where( $db->quoteName( 'template_id' ) . ' = :key' )
+									->where( $db->quoteName( 'language' ) . ' = :language' )
+									->bind( ':params', $json )
+									->bind( ':key', $key )
+									->bind( ':language', $language );
+
+				$db->setQuery( $update )->execute();
+			}
 		} catch ( \Throwable $e ) {
 			// Keep installation non-blocking if mail templates are unavailable.
 		}
@@ -77,10 +121,7 @@ class cbbeforeregverifyInstaller
 		$overrides	=	[
 			self::MAIL_TEMPLATE_TITLE_KEY	=>	'CB Before Registration Verify: Verification Code',
 			self::MAIL_TEMPLATE_DESC_KEY	=>	'Email sent with the verification code before Community Builder registration.',
-			self::MAIL_TEMPLATE_SHORT_KEY	=>	'Verification Code',
-			self::MAIL_TEMPLATE_TITLE_KEY_UC	=>	'CB Before Registration Verify: Verification Code',
-			self::MAIL_TEMPLATE_DESC_KEY_UC		=>	'Email sent with the verification code before Community Builder registration.',
-			self::MAIL_TEMPLATE_SHORT_KEY_UC	=>	'Verification Code'
+			self::MAIL_TEMPLATE_SHORT_KEY	=>	'Verification Code'
 		];
 
 		foreach ( $this->getOverrideLanguageTags() as $languageTag ) {
@@ -128,9 +169,12 @@ class cbbeforeregverifyInstaller
 			if ( file_exists( $filePath ) ) {
 				$parsed	=	parse_ini_file( $filePath, false, INI_SCANNER_RAW );
 
-				if ( is_array( $parsed ) ) {
-					$current	=	$parsed;
+				// Unreadable file: appending blind would duplicate keys on every install.
+				if ( ! is_array( $parsed ) ) {
+					return;
 				}
+
+				$current	=	array_change_key_case( $parsed, CASE_UPPER );
 			}
 
 			$lines		=	[];

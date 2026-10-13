@@ -11,7 +11,6 @@ use CB\Plugin\BeforeRegVerify\CBBeforeRegVerify;
 use CB\Plugin\BeforeRegVerify\Table\VerificationTable;
 use CBLib\Application\Application;
 use CBLib\Language\CBTxt;
-use Joomla\CMS\Log\Log;
 
 if ( ! ( defined( '_VALID_CB' ) || defined( '_JEXEC' ) || defined( '_VALID_MOS' ) ) ) { die( 'Direct Access to this location is not allowed.' ); }
 
@@ -28,7 +27,8 @@ class CBplug_cbbeforeregverify extends cbPluginHandler
 		outputCbJs();
 		outputCbTemplate();
 
-		if ( ! CBBeforeRegVerify::isEnabled() ) {
+		// CB's registration view shows the matching "not authorized" or "already logged in" message.
+		if ( ( ! CBBeforeRegVerify::isEnabled() ) || ( ! CBBeforeRegVerify::canRegister() ) ) {
 			cbRedirect( CBBeforeRegVerify::getRegistrationUrl() );
 		}
 
@@ -65,7 +65,7 @@ class CBplug_cbbeforeregverify extends cbPluginHandler
 	 */
 	private function submitEmail(): void
 	{
-		if ( ! Application::Session()->checkFormToken() ) {
+		if ( ! Application::Session()->checkFormToken( 'post', 0 ) ) {
 			cbRedirect(
 				CBBeforeRegVerify::getGatewayUrl( 'step_email' ),
 				CBTxt::T( 'CBBEFOREREGVERIFY_INVALID_CSRF', 'Your session token is invalid. Please try again.' ),
@@ -162,7 +162,7 @@ class CBplug_cbbeforeregverify extends cbPluginHandler
 		if ( CBBeforeRegVerify::isAttemptsLimitReached( $email ) ) {
 			cbRedirect(
 				CBBeforeRegVerify::getGatewayUrl( 'step_code' ),
-				CBTxt::T( 'CBBEFOREREGVERIFY_ATTEMPTS_EXCEEDED', 'Too many incorrect code attempts. Please request a new code.' ),
+				CBBeforeRegVerify::getAttemptsLockoutMessage( $email ),
 				'error'
 			);
 		}
@@ -178,7 +178,7 @@ class CBplug_cbbeforeregverify extends cbPluginHandler
 		}
 
 		if ( CBBeforeRegVerify::verifyCode( $row, $code ) ) {
-			if ( ! CBBeforeRegVerify::markVerified( $row ) ) {
+			if ( ( ! CBBeforeRegVerify::regenerateSessionId() ) || ( ! CBBeforeRegVerify::markVerified( $row ) ) ) {
 				cbRedirect(
 					CBBeforeRegVerify::getGatewayUrl( 'step_code' ),
 					CBTxt::T( 'CBBEFOREREGVERIFY_VERIFY_STORE_FAILED', 'Unable to complete verification. Please try again.' ),
@@ -186,7 +186,6 @@ class CBplug_cbbeforeregverify extends cbPluginHandler
 				);
 			}
 
-			CBBeforeRegVerify::regenerateSessionId();
 			CBBeforeRegVerify::setFlowEmail( $email );
 			CBBeforeRegVerify::setVerifiedEmail( $email );
 
@@ -211,7 +210,7 @@ class CBplug_cbbeforeregverify extends cbPluginHandler
 		if ( CBBeforeRegVerify::isAttemptsLimitReached( $email ) ) {
 			cbRedirect(
 				CBBeforeRegVerify::getGatewayUrl( 'step_code' ),
-				CBTxt::T( 'CBBEFOREREGVERIFY_ATTEMPTS_EXCEEDED', 'Too many incorrect code attempts. Please request a new code.' ),
+				CBBeforeRegVerify::getAttemptsLockoutMessage( $email ),
 				'error'
 			);
 		}
@@ -274,11 +273,7 @@ class CBplug_cbbeforeregverify extends cbPluginHandler
 			$row	=	CBBeforeRegVerify::getActiveVerificationRow( $email );
 
 			if ( $row ) {
-				if ( CBBeforeRegVerify::isExpired( $row ) ) {
-					$this->expireAndRestart( $row );
-				}
-
-				CBBeforeRegVerify::cancelRequest( $row, 'user_cancelled' );
+				CBBeforeRegVerify::cancelRequest( $row, ( CBBeforeRegVerify::isExpired( $row ) ? 'expired' : 'user_cancelled' ) );
 			}
 		}
 
@@ -335,7 +330,7 @@ class CBplug_cbbeforeregverify extends cbPluginHandler
 	 */
 	private function requireCsrf( string $redirectFunc ): void
 	{
-		if ( ! Application::Session()->checkFormToken() ) {
+		if ( ! Application::Session()->checkFormToken( 'post', 0 ) ) {
 			cbRedirect(
 				CBBeforeRegVerify::getGatewayUrl( $redirectFunc ),
 				CBTxt::T( 'CBBEFOREREGVERIFY_INVALID_CSRF', 'Your session token is invalid. Please try again.' ),
@@ -371,8 +366,7 @@ class CBplug_cbbeforeregverify extends cbPluginHandler
 		echo CBBeforeRegVerify::renderView(
 			$view,
 			[
-				'flowEmail'		=>	CBBeforeRegVerify::getFlowEmail(),
-				'codeLength'	=>	CBBeforeRegVerify::getCodeLength()
+				'flowEmail'		=>	CBBeforeRegVerify::getFlowEmail()
 			]
 		);
 	}
@@ -384,15 +378,9 @@ class CBplug_cbbeforeregverify extends cbPluginHandler
 	 */
 	private function logException( \Throwable $exception, string $context ): void
 	{
-		$message	=	$context . ': ' . $exception->getMessage()
-				.	' in ' . $exception->getFile() . ':' . $exception->getLine();
-
-		if ( class_exists( Log::class ) ) {
-			Log::add( $message, Log::ERROR, 'cbbeforeregverify' );
-
-			return;
-		}
-
-		error_log( 'cbbeforeregverify: ' . $message );
+		CBBeforeRegVerify::logError(
+			$context,
+			$exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine()
+		);
 	}
 }

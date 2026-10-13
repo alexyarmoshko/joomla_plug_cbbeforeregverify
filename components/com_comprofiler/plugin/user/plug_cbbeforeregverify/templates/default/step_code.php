@@ -16,7 +16,6 @@ use CBLib\Language\CBTxt;
 global $_CB_framework;
 
 $flowEmail	=	isset( $flowEmail ) ? (string) $flowEmail : CBBeforeRegVerify::getFlowEmail();
-$codeLength	=	isset( $codeLength ) ? (int) $codeLength : CBBeforeRegVerify::getCodeLength();
 ?>
 <div class="cbBeforeRegVerifyStep cbBeforeRegVerifyStepCode">
 	<h3><?php echo htmlspecialchars( CBTxt::T( 'CBBEFOREREGVERIFY_STEP_CODE_TITLE', 'Enter your verification code' ) ); ?></h3>
@@ -26,7 +25,7 @@ $codeLength	=	isset( $codeLength ) ? (int) $codeLength : CBBeforeRegVerify::getC
 	<form action="<?php echo htmlspecialchars( $_CB_framework->pluginClassUrl( 'cbbeforeregverify', true, [ 'func' => 'submit_code' ] ) ); ?>" method="post" class="cb_form cbBeforeRegVerifyForm cbBeforeRegVerifyFormCode">
 		<div class="form-group cbft_text cbtt_text cb_form_line">
 			<label for="cbbeforeregverify_code"><?php echo htmlspecialchars( CBTxt::T( 'CBBEFOREREGVERIFY_CODE_LABEL', 'Verification Code' ) ); ?></label>
-			<input type="text" id="cbbeforeregverify_code" name="verification_code" value="" class="form-control" inputmode="numeric" pattern="[0-9]*" maxlength="<?php echo (int) $codeLength; ?>" required="required" autocomplete="one-time-code" />
+			<input type="text" id="cbbeforeregverify_code" name="verification_code" value="" class="form-control" inputmode="numeric" pattern="[0-9]*" required="required" autocomplete="one-time-code" />
 		</div>
 		<div class="form-group cb_form_line">
 			<input type="submit" value="<?php echo htmlspecialchars( CBTxt::T( 'CBBEFOREREGVERIFY_SUBMIT_CODE', 'Verify Code' ) ); ?>" class="btn btn-primary" />

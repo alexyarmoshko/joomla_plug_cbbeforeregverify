@@ -16,6 +16,7 @@ use CBLib\Registry\Registry;
 use Joomla\CMS\Factory;
 use Joomla\CMS\Log\Log;
 use Joomla\CMS\Mail\MailTemplate;
+use Joomla\Database\DatabaseInterface;
 
 \defined( 'CBLIB' ) or die();
 
@@ -24,6 +25,7 @@ class CBBeforeRegVerify
 	public const SESSION_FLOW_EMAIL		=	'cbbeforeregverify_flow_email';
 	public const SESSION_VERIFIED_EMAIL	=	'cbbeforeregverify_verified_email';
 	public const MAIL_TEMPLATE_KEY		=	'comprofiler.cbbeforeregverify.verification_code';
+	public const LOG_CATEGORY			=	'cbbeforeregverify';
 
 	/** @var bool */
 	private static $maintenanceRan		=	false;
@@ -57,11 +59,11 @@ class CBBeforeRegVerify
 		return self::getGlobalParams()->getBool( 'gateway_enabled', true );
 	}
 
+	private const PURGE_GATE_SEC	=	3600;
+
 	/**
 	 * @return void
 	 */
-	private const PURGE_GATE_SEC	=	3600;
-
 	public static function runMaintenance(): void
 	{
 		if ( self::$maintenanceRan ) {
@@ -70,7 +72,7 @@ class CBBeforeRegVerify
 
 		self::$maintenanceRan	=	true;
 
-		$marker	=	( \defined( 'JPATH_ROOT' ) ? JPATH_ROOT : sys_get_temp_dir() ) . '/tmp/.cbbeforeregverify_purge';
+		$marker	=	self::getTmpPath() . '/.cbbeforeregverify_purge';
 
 		if ( @filemtime( $marker ) > ( time() - self::PURGE_GATE_SEC ) ) {
 			return;
@@ -82,6 +84,43 @@ class CBBeforeRegVerify
 		} catch ( \Throwable $e ) {
 			// Ignore maintenance errors to avoid blocking unrelated requests.
 		}
+	}
+
+	/**
+	 * @return string
+	 */
+	private static function getTmpPath(): string
+	{
+		$tmpPath	=	'';
+
+		try {
+			$tmpPath	=	(string) Factory::getApplication()->get( 'tmp_path', '' );
+		} catch ( \Throwable $e ) {
+			$tmpPath	=	'';
+		}
+
+		if ( $tmpPath === '' ) {
+			$tmpPath	=	( \defined( 'JPATH_ROOT' ) ? JPATH_ROOT . '/tmp' : sys_get_temp_dir() );
+		}
+
+		return rtrim( $tmpPath, '/\\' );
+	}
+
+	/**
+	 * Mirrors the guest and registration-enabled checks of CB registerForm().
+	 *
+	 * @return bool
+	 */
+	public static function canRegister(): bool
+	{
+		global $_CB_framework;
+
+		if ( $_CB_framework->myId() ) {
+			return false;
+		}
+
+		return ( $_CB_framework->getCfg( 'allowUserRegistration' ) != '0' )
+			|| ( Application::Config()->getInt( 'reg_admin_allowcbregistration', 0 ) === 1 );
 	}
 
 	/**
@@ -106,8 +145,32 @@ class CBBeforeRegVerify
 	 */
 	public static function getPurgeAfterDays(): int
 	{
-		$minDays	=	(int) ceil( self::getVerificationTtl() / 86400 );
-		$configDays	=	max( 1, self::getGlobalParams()->getInt( 'purge_after_days', 30 ) );
+		$params		=	self::getGlobalParams();
+		$keepSec	=	self::getVerificationTtl();
+
+		// Rows still counted by an enabled limiter must survive the purge.
+		if ( $params->getBool( 'rl_ip_enabled', true ) ) {
+			$keepSec	=	max(
+				$keepSec,
+				max( 1, $params->getInt( 'rl_ip_short_window_min', 15 ) ) * 60,
+				max( 1, $params->getInt( 'rl_ip_day_window_hours', 24 ) ) * 3600
+			);
+		}
+
+		if ( $params->getBool( 'rl_email_enabled', true ) ) {
+			$keepSec	=	max(
+				$keepSec,
+				max( 1, $params->getInt( 'rl_email_short_window_min', 30 ) ) * 60,
+				max( 1, $params->getInt( 'rl_email_day_window_hours', 24 ) ) * 3600
+			);
+		}
+
+		if ( $params->getBool( 'rl_resend_enabled', true ) ) {
+			$keepSec	=	max( $keepSec, max( 1, $params->getInt( 'rl_resend_cooldown_sec', 60 ) ) );
+		}
+
+		$minDays	=	(int) ceil( $keepSec / 86400 );
+		$configDays	=	max( 1, $params->getInt( 'purge_after_days', 30 ) );
 
 		return max( $minDays, $configDays );
 	}
@@ -264,10 +327,9 @@ class CBBeforeRegVerify
 	/**
 	 * @param string $email
 	 * @param string $ip
-	 * @param bool   $isResend
 	 * @return array{allowed:bool,message:string}
 	 */
-	public static function canProceedByRateLimits( string $email, string $ip, bool $isResend = false ): array
+	public static function canProceedByRateLimits( string $email, string $ip ): array
 	{
 		$params		=	self::getGlobalParams();
 		$email		=	self::normalizeEmail( $email );
@@ -333,7 +395,8 @@ class CBBeforeRegVerify
 			}
 		}
 
-		if ( $isResend && $params->getBool( 'rl_resend_enabled', true ) && ( $email !== '' ) ) {
+		// The cooldown applies to every new code for the email, including a repeated step-email submit.
+		if ( $params->getBool( 'rl_resend_enabled', true ) && ( $email !== '' ) ) {
 			$cooldown	=	max( 1, $params->getInt( 'rl_resend_cooldown_sec', 60 ) );
 			$lastSentAt	=	self::getLastIssuedAtByEmail( $email );
 
@@ -452,13 +515,13 @@ class CBBeforeRegVerify
 		$row->set( 'note', 'failed_code' );
 
 		if ( $row->getError() || ( ! $row->check() ) ) {
-			self::logInternalError( 'record_failed_attempt_check', (string) $row->getError() );
+			self::logError( 'record_failed_attempt_check', (string) $row->getError() );
 
 			throw new \RuntimeException( CBTxt::T( 'CBBEFOREREGVERIFY_ATTEMPT_STORE_FAILED', 'Failed to record verification attempt.' ) );
 		}
 
 		if ( $row->getError() || ( ! $row->store() ) ) {
-			self::logInternalError( 'record_failed_attempt_store', (string) $row->getError() );
+			self::logError( 'record_failed_attempt_store', (string) $row->getError() );
 
 			throw new \RuntimeException( CBTxt::T( 'CBBEFOREREGVERIFY_ATTEMPT_STORE_FAILED', 'Failed to record verification attempt.' ) );
 		}
@@ -467,29 +530,48 @@ class CBBeforeRegVerify
 	}
 
 	/**
+	 * Seconds until the email drops below the failed-attempts limit; 0 when it is not locked.
+	 *
 	 * @param string $email
 	 * @return int
 	 */
-	public static function getFailedAttemptCount( string $email ): int
+	public static function getAttemptsLockoutSeconds( string $email ): int
 	{
 		global $_CB_database;
 
+		$params	=	self::getGlobalParams();
 		$email	=	self::normalizeEmail( $email );
 
-		if ( $email === '' ) {
+		if ( ( $email === '' ) || ( ! $params->getBool( 'rl_attempts_enabled', true ) ) ) {
 			return 0;
 		}
 
-		$now	=	Application::Database()->getUtcDateTime();
-		$query	=	'SELECT COUNT(*)'
-				.	"\n FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_beforeregverify' )
-				.	"\n WHERE " . $_CB_database->NameQuote( 'email' ) . " = " . $_CB_database->Quote( $email )
-				.	"\n AND " . $_CB_database->NameQuote( 'status' ) . " = " . $_CB_database->Quote( VerificationTable::STATUS_ATTEMPT )
-				.	"\n AND " . $_CB_database->NameQuote( 'outcome' ) . " = " . $_CB_database->Quote( VerificationTable::OUTCOME_FAILED )
-				.	"\n AND DATE_ADD(" . $_CB_database->NameQuote( 'sent_at' ) . ', INTERVAL ' . $_CB_database->NameQuote( 'ttl' ) . ' SECOND) > ' . $_CB_database->Quote( $now );
-		$_CB_database->setQuery( $query );
+		$max	=	$params->getInt( 'rl_attempts_max', 8 );
 
-		return (int) $_CB_database->loadResult();
+		if ( $max < 1 ) {
+			return 0;
+		}
+
+		$expiresAt	=	'DATE_ADD(' . $_CB_database->NameQuote( 'sent_at' ) . ', INTERVAL ' . $_CB_database->NameQuote( 'ttl' ) . ' SECOND)';
+		$query		=	'SELECT ' . $expiresAt
+					.	"\n FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_beforeregverify' )
+					.	"\n WHERE " . $_CB_database->NameQuote( 'email' ) . " = " . $_CB_database->Quote( $email )
+					.	"\n AND " . $_CB_database->NameQuote( 'status' ) . " = " . $_CB_database->Quote( VerificationTable::STATUS_ATTEMPT )
+					.	"\n AND " . $_CB_database->NameQuote( 'outcome' ) . " = " . $_CB_database->Quote( VerificationTable::OUTCOME_FAILED )
+					.	"\n AND " . $expiresAt . ' > ' . $_CB_database->Quote( Application::Database()->getUtcDateTime() )
+					.	"\n ORDER BY 1 ASC";
+		$_CB_database->setQuery( $query );
+		$expiries	=	(array) $_CB_database->loadResultArray();
+		$count		=	\count( $expiries );
+
+		if ( $count < $max ) {
+			return 0;
+		}
+
+		// The lock lifts once enough of the oldest attempts expire to leave max - 1 counted.
+		$releaseAt	=	Application::Date( (string) $expiries[$count - $max], 'UTC' )->getTimestamp();
+
+		return max( 1, $releaseAt - Application::Date( 'now', 'UTC' )->getTimestamp() );
 	}
 
 	/**
@@ -498,31 +580,63 @@ class CBBeforeRegVerify
 	 */
 	public static function isAttemptsLimitReached( string $email ): bool
 	{
-		$params	=	self::getGlobalParams();
-
-		if ( ! $params->getBool( 'rl_attempts_enabled', true ) ) {
-			return false;
-		}
-
-		$max	=	$params->getInt( 'rl_attempts_max', 8 );
-
-		if ( $max < 1 ) {
-			return false;
-		}
-
-		return ( self::getFailedAttemptCount( $email ) >= $max );
+		return ( self::getAttemptsLockoutSeconds( $email ) > 0 );
 	}
 
 	/**
-	 * @return void
+	 * @param string $email
+	 * @return string
 	 */
-	public static function regenerateSessionId(): void
+	public static function getAttemptsLockoutMessage( string $email ): string
 	{
-		$cmsSession	=	Application::Cms()->getSession();
+		return CBTxt::T(
+			'CBBEFOREREGVERIFY_ATTEMPTS_EXCEEDED',
+			'Too many incorrect code attempts. Please try again in [minutes] minute(s).',
+			[ '[minutes]' => max( 1, (int) ceil( self::getAttemptsLockoutSeconds( $email ) / 60 ) ) ]
+		);
+	}
 
-		if ( is_object( $cmsSession ) && method_exists( $cmsSession, 'regenerate' ) ) {
-			$cmsSession->regenerate( true );
+	/**
+	 * Rotate the session ID the way Joomla's user plugin does on login.
+	 *
+	 * @return bool
+	 */
+	public static function regenerateSessionId(): bool
+	{
+		try {
+			$app			=	Factory::getApplication();
+			$session		=	$app->getSession();
+			$oldSessionId	=	$session->getId();
+
+			if ( ! $session->fork( true ) ) {
+				self::logError( 'regenerate_session', 'session fork failed' );
+
+				return false;
+			}
+		} catch ( \Throwable $e ) {
+			self::logError( 'regenerate_session', $e->getMessage() );
+
+			return false;
 		}
+
+		// The ID has already rotated; a metadata failure must not block verification.
+		try {
+			if ( $app->get( 'session_metadata', true ) ) {
+				$app->checkSession();
+
+				$db		=	Factory::getContainer()->get( DatabaseInterface::class );
+				$query	=	$db->createQuery()
+							->delete( $db->quoteName( '#__session' ) )
+							->where( $db->quoteName( 'session_id' ) . ' = :sessionid' )
+							->bind( ':sessionid', $oldSessionId );
+
+				$db->setQuery( $query )->execute();
+			}
+		} catch ( \Throwable $e ) {
+			self::logError( 'regenerate_session_metadata', $e->getMessage() );
+		}
+
+		return true;
 	}
 
 	/**
@@ -562,7 +676,6 @@ class CBBeforeRegVerify
 	{
 		$secret		=	self::getSecret();
 		$email		=	self::normalizeEmail( $email );
-		$isResend	=	( $status === VerificationTable::STATUS_RESENT );
 
 		if ( ! $secret ) {
 			throw new \RuntimeException( CBTxt::T( 'CBBEFOREREGVERIFY_SECRET_REQUIRED', 'Verification secret is required before this gateway can be used.' ) );
@@ -572,7 +685,12 @@ class CBBeforeRegVerify
 			throw new \InvalidArgumentException( CBTxt::T( 'CBBEFOREREGVERIFY_EMAIL_INVALID', 'Enter a valid email address.' ) );
 		}
 
-		$rateLimit	=	self::canProceedByRateLimits( $email, $ip, $isResend );
+		// A new code does not reset failed attempts, so don't mail one that can't be used yet.
+		if ( self::isAttemptsLimitReached( $email ) ) {
+			throw new \DomainException( self::getAttemptsLockoutMessage( $email ) );
+		}
+
+		$rateLimit	=	self::canProceedByRateLimits( $email, $ip );
 
 		if ( ! $rateLimit['allowed'] ) {
 			throw new \DomainException( $rateLimit['message'] ?: CBTxt::T( 'CBBEFOREREGVERIFY_RATE_LIMITED', 'Too many verification requests. Please try again later.' ) );
@@ -595,13 +713,13 @@ class CBBeforeRegVerify
 		$row->set( 'note', null );
 
 		if ( $row->getError() || ( ! $row->check() ) ) {
-			self::logInternalError( 'issue_code_check', (string) $row->getError() );
+			self::logError( 'issue_code_check', (string) $row->getError() );
 
 			throw new \RuntimeException( CBTxt::T( 'CBBEFOREREGVERIFY_ISSUE_FAILED', 'Failed to create verification request.' ) );
 		}
 
 		if ( $row->getError() || ( ! $row->store() ) ) {
-			self::logInternalError( 'issue_code_store', (string) $row->getError() );
+			self::logError( 'issue_code_store', (string) $row->getError() );
 
 			throw new \RuntimeException( CBTxt::T( 'CBBEFOREREGVERIFY_ISSUE_FAILED', 'Failed to create verification request.' ) );
 		}
@@ -742,7 +860,6 @@ class CBBeforeRegVerify
 		}
 
 		$flowEmail	=	$vars['flowEmail'] ?? '';
-		$codeLength	=	$vars['codeLength'] ?? 0;
 
 		ob_start();
 		include $template;
@@ -827,20 +944,27 @@ class CBBeforeRegVerify
 	 * @param string $details
 	 * @return void
 	 */
-	private static function logInternalError( string $context, string $details = '' ): void
+	public static function logError( string $context, string $details = '' ): void
 	{
+		static $loggerAdded	=	false;
+
 		$message	=	$context;
 
 		if ( $details !== '' ) {
 			$message	.=	': ' . $details;
 		}
 
-		if ( class_exists( Log::class ) ) {
-			Log::add( $message, Log::ERROR, 'cbbeforeregverify' );
+		try {
+			// Joomla only writes categories that have a logger registered.
+			if ( ! $loggerAdded ) {
+				Log::addLogger( [ 'text_file' => 'cbbeforeregverify.php' ], Log::ALL, [ self::LOG_CATEGORY ] );
 
-			return;
+				$loggerAdded	=	true;
+			}
+
+			Log::add( $message, Log::ERROR, self::LOG_CATEGORY );
+		} catch ( \Throwable $e ) {
+			error_log( 'cbbeforeregverify: ' . $message );
 		}
-
-		error_log( 'cbbeforeregverify: ' . $message );
 	}
 }

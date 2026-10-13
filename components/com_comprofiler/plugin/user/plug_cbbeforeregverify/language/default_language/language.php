@@ -15,7 +15,6 @@
 defined( 'CBLIB' ) or die();
 
 return array(
-	'CBBEFOREREGVERIFY_MILESTONE1_ONLY'		=>	'CBBeforeRegVerify Milestone 1 scaffold is installed. Verification flow will be implemented in the next milestone.',
 	'CBBEFOREREGVERIFY_STEP_EMAIL_TITLE'	=>	'Verify your email to continue',
 	'CBBEFOREREGVERIFY_STEP_EMAIL_BODY'		=>	'Enter your email address and we will send a verification code.',
 	'CBBEFOREREGVERIFY_STEP_CODE_TITLE'		=>	'Enter your verification code',
@@ -39,7 +38,7 @@ return array(
 	'CBBEFOREREGVERIFY_CODE_VERIFIED'		=>	'Email verification complete. Continue with registration.',
 	'CBBEFOREREGVERIFY_VERIFY_STORE_FAILED'	=>	'Unable to complete verification. Please try again.',
 	'CBBEFOREREGVERIFY_ATTEMPT_STORE_FAILED'=>	'Failed to record verification attempt.',
-	'CBBEFOREREGVERIFY_ATTEMPTS_EXCEEDED'	=>	'Too many incorrect code attempts. Please request a new code.',
+	'CBBEFOREREGVERIFY_ATTEMPTS_EXCEEDED'	=>	'Too many incorrect code attempts. Please try again in [minutes] minute(s).',
 	'CBBEFOREREGVERIFY_RATE_LIMITED'		=>	'Too many verification requests. Please try again later.',
 	'CBBEFOREREGVERIFY_RATE_LIMIT_IP_SHORT'	=>	'Too many verification requests from this IP address. Please try again in [minutes] minute(s).',
 	'CBBEFOREREGVERIFY_RATE_LIMIT_IP_DAY'	=>	'Too many verification requests from this IP address. Please try again in [hours] hour(s).',

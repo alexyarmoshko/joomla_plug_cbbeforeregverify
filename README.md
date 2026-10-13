@@ -20,20 +20,20 @@ No Joomla/CB user is created by this plugin before verification completes.
 - Email-first registration gateway (`gateway_enabled` toggle).
 - Verification actions: submit email, submit code, resend, cancel, restart.
 - CSRF checks on all gateway actions (`submit_email`, `submit_code`, `resend`, `cancel`, `restart`) and registration save request.
-- Exception details are logged server-side while user-facing gateway errors remain generic/localized.
+- Exception details go to `administrator/logs/cbbeforeregverify.php`, while user-facing gateway errors stay generic and localized.
 - Code hashing with `HMAC-SHA256(code, secret)`.
 - TTL-based expiry and automatic expiry handling.
-- Failed-attempt row recording with configurable attempts limit.
+- Failed-attempt row recording with configurable attempts limit. While an email is locked, no new code is sent and the message gives the wait time.
 - Independent IP-based and email-based send limits.
-- Resend cooldown limiter.
-- Runtime purge of stale rows older than purge threshold, while retaining unexpired `pending` verification rows.
+- Cooldown between new codes for the same email, whether requested by resend or by entering the email again.
+- Runtime purge of stale rows older than purge threshold, while retaining unexpired `pending` verification rows and rows still inside an enabled rate-limit window.
 - Joomla Mail Template support (`comprofiler.cbbeforeregverify.verification_code`) with fallback to `cbNotification`.
 - At registration time, verified users are marked `confirmed = 1` when the verified email matches the registration email.
 
 ## Compatibility and Current Manifest Values
 
 - Joomla target platform: `5.x` and `6.x`.
-- Community Builder compatibility (`<version>`): `2.11.0`.
+- Community Builder compatibility (`<version>`): `2.11.0`. Tested on CB 2.12.0.
 - Plugin release (`<release>`): `0.1.1`.
 
 ## Requirements
@@ -42,6 +42,7 @@ No Joomla/CB user is created by this plugin before verification completes.
 - Community Builder 2.11.0+
 - PHP version supported by your Joomla + CB stack
 - Working mail delivery in Joomla
+- Joomla's own registration (Users: Options → Allow User Registration) switched off, or the CB system plugin's "Redirect URLs" option switched on. The gateway only covers CB's registration form.
 
 ## Installation
 

@@ -55,7 +55,7 @@ return array(
 	'CBBEFOREREGVERIFY_PARAM_RL_RESEND_ENABLED_LABEL'			=>	'Resend Cooldown Enabled',
 	'CBBEFOREREGVERIFY_PARAM_RL_RESEND_ENABLED_DESC'			=>	'Enable or disable resend cooldown limiting.',
 	'CBBEFOREREGVERIFY_PARAM_RL_RESEND_COOLDOWN_SEC_LABEL'		=>	'Resend Cooldown (seconds)',
-	'CBBEFOREREGVERIFY_PARAM_RL_RESEND_COOLDOWN_SEC_DESC'		=>	'Minimum delay between resend requests for the same email.',
+	'CBBEFOREREGVERIFY_PARAM_RL_RESEND_COOLDOWN_SEC_DESC'		=>	'Minimum delay between new codes for the same email, whether sent by resend or by entering the email again.',
 	'CBBEFOREREGVERIFY_PARAM_RL_ATTEMPTS_ENABLED_LABEL'		=>	'Attempts Limit Enabled',
 	'CBBEFOREREGVERIFY_PARAM_RL_ATTEMPTS_ENABLED_DESC'			=>	'Enable or disable failed verification attempt limiting.',
 	'CBBEFOREREGVERIFY_PARAM_RL_ATTEMPTS_MAX_LABEL'			=>	'Failed Attempts Max',

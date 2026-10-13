@@ -123,45 +123,39 @@ class UserTrigger extends \cbPluginHandler
 			ENT_QUOTES,
 			'UTF-8'
 		);
-		$restartTokenInput	=	(string) Application::Session()->getFormTokenInput();
+		$restartFormId	=	'cbBeforeRegVerifyRestartForm';
 		$restartInjected	=	false;
 
 		$return			=	(string) preg_replace_callback(
 			'/<input\b[^>]*\bname\s*=\s*(["\'])email\1[^>]*>/i',
-			static function( array $match ) use ( $emailEscaped, $restartAction, $restartText, $restartHint, $restartTokenInput, &$restartInjected ): string {
+			static function( array $match ) use ( $emailEscaped, $restartFormId, $restartText, $restartHint, &$restartInjected ): string {
 				$input	=	$match[0];
 
 				if ( preg_match( '/\btype\s*=\s*(["\'])hidden\1/i', $input ) ) {
 					return $input;
 				}
 
+				// Drop the closing ">" or "/>" so attributes can be appended, then close it again.
+				$input	=	(string) preg_replace( '/\s*\/?>$/', '', $input );
+
 				if ( preg_match( '/\bvalue\s*=\s*(["\']).*?\1/i', $input ) ) {
 					$input	=	(string) preg_replace( '/\bvalue\s*=\s*(["\']).*?\1/i', 'value="' . $emailEscaped . '"', $input );
 				} else {
-					$input	=	rtrim( $input, '>' ) . ' value="' . $emailEscaped . '">';
+					$input	.=	' value="' . $emailEscaped . '"';
 				}
 
 				if ( stripos( $input, 'readonly' ) === false ) {
-					$input	=	rtrim( $input, '>' ) . ' readonly="readonly">';
+					$input	.=	' readonly="readonly"';
 				}
+
+				$input	.=	' />';
 
 				if ( ! $restartInjected ) {
 					$restartInjected	=	true;
 
-					// Extract token name and value from the hidden input for JS use.
-					$tokenName	=	'';
-					$tokenValue	=	'';
-					if (
-						preg_match( '/name\s*=\s*["\']([^"\']+)["\']/', $restartTokenInput, $nameMatch )
-						&& preg_match( '/value\s*=\s*["\']([^"\']*)["\']/', $restartTokenInput, $valueMatch )
-					) {
-						$tokenName	=	htmlspecialchars( $nameMatch[1], ENT_QUOTES, 'UTF-8' );
-						$tokenValue	=	htmlspecialchars( $valueMatch[1], ENT_QUOTES, 'UTF-8' );
-					}
-
-					// Build and submit a standalone POST form to avoid nested-form stripping.
+					// The button sits inside CB's form but submits the restart form appended after it.
 					$input	.=	'<div class="cbBeforeRegVerifyRestart mt-2">'
-							.	'<button type="button" class="btn btn-outline-secondary btn-sm" onclick="(function(){var f=document.createElement(\'form\');f.method=\'post\';f.action=\'' . $restartAction . '\';var t=document.createElement(\'input\');t.type=\'hidden\';t.name=\'' . $tokenName . '\';t.value=\'' . $tokenValue . '\';f.appendChild(t);document.body.appendChild(f);f.submit();})();return false;">' . $restartText . '</button>'
+							.	'<button type="submit" form="' . $restartFormId . '" class="btn btn-outline-secondary btn-sm">' . $restartText . '</button>'
 							.	'<p class="small mt-1 mb-0">' . $restartHint . '</p>'
 							.	'</div>';
 				}
@@ -170,6 +164,12 @@ class UserTrigger extends \cbPluginHandler
 			},
 			(string) $return
 		);
+
+		if ( $restartInjected ) {
+			$return		.=	'<form id="' . $restartFormId . '" action="' . $restartAction . '" method="post" class="cbBeforeRegVerifyRestartForm">'
+						.	Application::Session()->getFormTokenInput()
+						.	'</form>';
+		}
 	}
 
 	/**
@@ -224,7 +224,7 @@ class UserTrigger extends \cbPluginHandler
 	}
 
 	/**
-	 * Milestone 6: set confirmed state at registration-time for gateway-verified users.
+	 * Set confirmed state at registration time for gateway-verified users.
 	 *
 	 * @param mixed $user
 	 * @param mixed ...$args
