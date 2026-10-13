@@ -32,9 +32,9 @@ No Joomla/CB user is created by this plugin before verification completes.
 
 ## Compatibility and Current Manifest Values
 
-- Joomla target platform: `5.x` and `6.x` (from `plug_cbbeforeregverify.update.xml`).
+- Joomla target platform: `5.x` and `6.x`.
 - Community Builder compatibility (`<version>`): `2.11.0`.
-- Plugin release (`<release>`): `0.1.0`.
+- Plugin release (`<release>`): `0.1.1`.
 
 ## Requirements
 
@@ -45,7 +45,7 @@ No Joomla/CB user is created by this plugin before verification completes.
 
 ## Installation
 
-1. Build package with `make dist` (or use a release zip from `installation/`).
+1. Download the release ZIP from GitHub, or build one (see [Build](#build)).
 2. Install the generated zip in Community Builder plugin manager.
 3. Publish plugin `Yak Shaver CB Before Registration Email Verify`.
 4. Configure plugin parameters, especially `secret`, before enabling in production.
@@ -66,31 +66,42 @@ No Joomla/CB user is created by this plugin before verification completes.
 - `rl_resend_enabled` (default `1`), `rl_resend_cooldown_sec` (default `60`).
 - `rl_attempts_enabled` (default `1`), `rl_attempts_max` (default `8`).
 
-## Update Server Manifest
+## Updating
 
-- Feed file: `plug_cbbeforeregverify.update.xml`
-- Typical raw URL:
-  `https://raw.githubusercontent.com/alexyarmoshko/joomla_plug_cbbeforeregverify/main/plug_cbbeforeregverify.update.xml`
+Community Builder plugins get no update notifications. Joomla's updater doesn't track CB plugins, and CB's own version check covers only Joomlapolis products. To update, install the newer ZIP over the existing one in Community Builder → Plugin Management.
 
-## Packaging
+## Build
 
-Run from the repository root in a Linux shell or Git Bash on Windows. Requires `make`, `zip`, `awk`, and `sha256sum` (or `shasum`).
+Run from the repository root in a Linux shell or Git Bash on Windows. Requires `make`, `git`, `php`, `awk`, and `sha256sum` or `shasum`.
 
-- `make info`: show resolved version and output paths.
-- `make dist`: build zip and refresh update manifest version/download URL/sha256.
-- `make clean`: remove generated package zip.
+| Target | What it does |
+|---|---|
+| `make info` | Show the version and the paths the build uses. |
+| `make lint` | Check that `PACKAGE_FILES` in the Makefile matches the files git tracks in the plugin directory, then syntax-check the PHP and the manifest XML. |
+| `make test` | No automated tests; release testing is manual. |
+| `make dist_dev` | Build a test package from the working tree into `installation/dev/`. |
+| `make release` | Run `test` and `lint`, then tag the version. Needs a clean tree and a `## <version>` heading in `docs/RELEASE.md`. |
+| `make dist_release` | Build the release package from the tag into `installation/release/` and print its sha256. Needs a clean tree with `HEAD` at the tag. |
+| `make clean` | Remove `build/` and both package output directories. |
 
-Generated artifact:
-- `installation/plug_cbbeforeregverify-v<release-with-dashes>.zip`
+The version comes from `<release>` in the manifest. `<version>` is the Community Builder compatibility version (`2.11.0`).
 
-## Release Process
+When you add a file to the plugin, add it to `PACKAGE_FILES` too, or `make lint` fails.
 
-1. Update `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/cbbeforeregverify.xml`:
-   set `<release>` to new plugin release (keep `<version>` as CB compatibility baseline).
-2. Run `make dist`.
-3. Commit updated `plug_cbbeforeregverify.update.xml` and package asset(s).
-4. Create GitHub release/tag matching `<release>`.
-5. Upload `installation/plug_cbbeforeregverify-v<release-with-dashes>.zip` to that release.
+### Reproducible packages
+
+`dist_release` packages a `git archive` export of the tag with `tools/jzip.php`. Every ZIP entry gets the tag's commit date, so rebuilding a tag gives the same bytes and sha256 on any machine. One caveat: a PHP built against zlib-ng instead of zlib compresses differently.
+
+`release` and `dist_release` accept only `INSTALL_DIR` and `BUILD_DIR` on the command line, and stop if any other build variable is overridden.
+
+`tools/jzip.php` is a copy of `src/jzip/jzip.php` from the `ys_toolbox` repository. Make fixes there and copy the file back unchanged.
+
+### Releasing
+
+1. Bump `<release>` in `components/com_comprofiler/plugin/user/plug_cbbeforeregverify/cbbeforeregverify.xml`, add a `## <version>` section to `docs/RELEASE.md`, and commit.
+2. Run `make release`.
+3. Run `make dist_release`.
+4. Push the tag, upload `installation/release/plug_cbbeforeregverify-v<version-with-dashes>.zip` as the GitHub release asset, and put its sha256 in the release description.
 
 ## License
 

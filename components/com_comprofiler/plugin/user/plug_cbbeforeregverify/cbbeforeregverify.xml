@@ -8,7 +8,7 @@
 	<authorEmail>me@kayakshaver.com</authorEmail>
 	<description>Pre-registration email verification gateway for CB user registration form.</description>
 	<version>2.11.0</version>
-	<release>0.1.0</release>
+	<release>0.1.1</release>
 	<scriptfile>install.cbbeforeregverify.php</scriptfile>
 	<files>
 		<filename plugin="cbbeforeregverify">cbbeforeregverify.php</filename>

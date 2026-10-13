@@ -1,8 +1,24 @@
-# Yak Shaver CB Before Registration Email Verify v0.1.0
+# Release Notes
+
+## 0.1.1 (2026-10-13)
+
+No functional changes. The shipped code is the same as in the published 0.1.0 package.
+
+### Changes
+
+- Release packages are reproducible: rebuilding tag `0.1.1` gives the same ZIP and sha256 on Linux and Windows.
+- `library/Trigger/UserTrigger.php` now ships with LF line endings. 0.1.0 had mixed CRLF and LF.
+- Removed `plug_cbbeforeregverify.update.xml`. Community Builder plugins have no update channel, so nothing used it.
+
+### Upgrading
+
+Install the 0.1.1 ZIP over 0.1.0 in Community Builder → Plugin Management. Settings and data are kept.
+
+## 0.1.0 (2026-02-08)
 
 Pre-registration email verification gateway for Community Builder. Requires guests to verify their email address via a 6-digit code before accessing the CB registration form.
 
-## Features
+### Features
 
 - **Two-step verification flow**: Email entry → Code verification → Registration
 - **No user creation before verification**: Users are only created after successful code verification
@@ -14,19 +30,19 @@ Pre-registration email verification gateway for Community Builder. Requires gues
 - **Verified email enforcement**: Registration form email field is locked to the verified address
 - **Automatic cleanup**: Configurable purge of old verification records
 
-## Requirements
+### Requirements
 
 - Joomla 5.x
 - Community Builder 2.11+
 - PHP 8.1+
 
-## Installation
+### Installation
 
 1. Upload `plug_cbbeforeregverify-v0-1-0.zip` via CB Plugin Manager
 2. Configure the secret key in plugin settings (required)
 3. Enable the gateway
 
-## Configuration
+### Configuration
 
 | Setting | Default | Description |
 |---------|---------|-------------|
@@ -35,7 +51,7 @@ Pre-registration email verification gateway for Community Builder. Requires gues
 | Code length | 6 | Verification code digits |
 | Purge after days | 30 | Auto-cleanup threshold for old records |
 
-### Rate Limits (all independently toggleable)
+#### Rate Limits (all independently toggleable)
 
 | Limiter | Default | Description |
 |---------|---------|-------------|
@@ -46,7 +62,7 @@ Pre-registration email verification gateway for Community Builder. Requires gues
 | Resend cooldown | 60s | Minimum wait between resends |
 | Failed attempts | 8 | Max incorrect codes per verification |
 
-## Known Limitations
+### Known Limitations
 
 - IPv6 clients may bypass IP rate limits by rotating addresses within their /64 prefix
 - Changing code length does not affect active verification codes
