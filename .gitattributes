@@ -1,0 +1,9 @@
+# Store and check out text files with LF on every OS.
+* text=auto eol=lf
+
+# Packaged release archives and images are binary.
+*.zip binary
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary

@@ -1,7 +1,11 @@
+.env
 .DS_Store
 Thumbs.db
 installation/
-.vscode/
-.claude/
-.codex/
-.agent/
+build/
+vendor/
+node_modules/
+.phpunit.cache/
+coverage/
+.playwright-mcp/
+*:Zone.Identifier

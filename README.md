@@ -72,7 +72,9 @@ No Joomla/CB user is created by this plugin before verification completes.
 - Typical raw URL:
   `https://raw.githubusercontent.com/alexyarmoshko/joomla_plug_cbbeforeregverify/main/plug_cbbeforeregverify.update.xml`
 
-## Packaging (Git Bash)
+## Packaging
+
+Run from the repository root in a Linux shell or Git Bash on Windows. Requires `make`, `zip`, `awk`, and `sha256sum` (or `shasum`).
 
 - `make info`: show resolved version and output paths.
 - `make dist`: build zip and refresh update manifest version/download URL/sha256.
