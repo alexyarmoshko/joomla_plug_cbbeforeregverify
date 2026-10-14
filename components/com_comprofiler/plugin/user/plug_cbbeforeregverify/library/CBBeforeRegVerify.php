@@ -483,15 +483,46 @@ class CBBeforeRegVerify
 	 */
 	public static function markVerified( VerificationTable $row ): bool
 	{
-		if ( ! $row->getInt( 'id', 0 ) ) {
+		return self::transitionPending( $row, VerificationTable::OUTCOME_VERIFIED, null );
+	}
+
+	/**
+	 * Move a row out of pending only if it is still pending in the database, so a
+	 * stale copy can never overwrite a state another request has already written.
+	 *
+	 * @param VerificationTable $row
+	 * @param string            $outcome
+	 * @param null|string       $note
+	 * @return bool True when this call made the transition
+	 */
+	private static function transitionPending( VerificationTable $row, string $outcome, ?string $note ): bool
+	{
+		global $_CB_database;
+
+		$id	=	$row->getInt( 'id', 0 );
+
+		if ( ! $id ) {
 			return false;
 		}
 
-		$row->set( 'outcome', VerificationTable::OUTCOME_VERIFIED );
-		$row->set( 'note', null );
-		$row->set( 'modified_at', Application::Database()->getUtcDateTime() );
+		$now	=	Application::Database()->getUtcDateTime();
+		$query	=	'UPDATE ' . $_CB_database->NameQuote( '#__comprofiler_plugin_beforeregverify' )
+				.	"\n SET " . $_CB_database->NameQuote( 'outcome' ) . " = " . $_CB_database->Quote( $outcome )
+				.	', ' . $_CB_database->NameQuote( 'note' ) . ' = ' . ( $note === null ? 'NULL' : $_CB_database->Quote( $note ) )
+				.	', ' . $_CB_database->NameQuote( 'modified_at' ) . ' = ' . $_CB_database->Quote( $now )
+				.	"\n WHERE " . $_CB_database->NameQuote( 'id' ) . " = " . (int) $id
+				.	"\n AND " . $_CB_database->NameQuote( 'outcome' ) . " = " . $_CB_database->Quote( VerificationTable::OUTCOME_PENDING );
+		$_CB_database->setQuery( $query );
 
-		return $row->store();
+		if ( ( ! $_CB_database->query() ) || ( (int) $_CB_database->getAffectedRows() !== 1 ) ) {
+			return false;
+		}
+
+		$row->set( 'outcome', $outcome );
+		$row->set( 'note', $note );
+		$row->set( 'modified_at', $now );
+
+		return true;
 	}
 
 	/**
@@ -834,15 +865,7 @@ class CBBeforeRegVerify
 	 */
 	public static function cancelRequest( VerificationTable $row, string $reason ): bool
 	{
-		if ( ! $row->getInt( 'id', 0 ) ) {
-			return false;
-		}
-
-		$row->set( 'outcome', VerificationTable::OUTCOME_CANCELLED );
-		$row->set( 'note', $reason );
-		$row->set( 'modified_at', Application::Database()->getUtcDateTime() );
-
-		return $row->store();
+		return self::transitionPending( $row, VerificationTable::OUTCOME_CANCELLED, $reason );
 	}
 
 	/**
