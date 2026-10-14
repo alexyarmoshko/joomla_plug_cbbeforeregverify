@@ -28,6 +28,14 @@ class CBBeforeRegVerify
 	public const LOG_CATEGORY			=	'cbbeforeregverify';
 	public const NOTE_MAIL_SEND_FAILED	=	'mail_send_failed';
 
+	public const SUBMIT_NO_ACTIVE				=	'no_active';
+	public const SUBMIT_EXPIRED				=	'expired';
+	public const SUBMIT_LOCKED				=	'locked';
+	public const SUBMIT_INVALID				=	'invalid';
+	public const SUBMIT_VERIFIED				=	'verified';
+	public const SUBMIT_VERIFY_FAILED			=	'verify_failed';
+	public const SUBMIT_ATTEMPT_STORE_FAILED	=	'attempt_store_failed';
+
 	/** @var bool */
 	private static $maintenanceRan		=	false;
 
@@ -475,6 +483,62 @@ class CBBeforeRegVerify
 		}
 
 		return hash_equals( $hash, self::hashCode( $code ) );
+	}
+
+	/**
+	 * Decide one code entry under the email lock, so parallel entries for the same
+	 * email can't record more failed attempts than the limit allows. The caller maps
+	 * the result to a redirect after the lock is released.
+	 *
+	 * @param string $email
+	 * @param string $code
+	 * @param string $ip
+	 * @return string One of the SUBMIT_* constants
+	 * @throws LockException
+	 */
+	public static function submitCode( string $email, string $code, string $ip ): string
+	{
+		return self::withLocks( [ self::lockName( 'email', self::normalizeEmail( $email ) ) ], static function () use ( $email, $code, $ip ): string {
+			$row	=	self::getActiveVerificationRow( $email );
+
+			if ( ! $row ) {
+				return self::SUBMIT_NO_ACTIVE;
+			}
+
+			if ( self::isExpired( $row ) ) {
+				self::cancelRequest( $row, 'expired' );
+
+				return self::SUBMIT_EXPIRED;
+			}
+
+			if ( self::isAttemptsLimitReached( $email ) ) {
+				return self::SUBMIT_LOCKED;
+			}
+
+			$code	=	trim( $code );
+
+			if ( $code === '' ) {
+				return self::SUBMIT_INVALID;
+			}
+
+			if ( self::verifyCode( $row, $code ) ) {
+				if ( ( ! self::regenerateSessionId() ) || ( ! self::markVerified( $row ) ) ) {
+					return self::SUBMIT_VERIFY_FAILED;
+				}
+
+				return self::SUBMIT_VERIFIED;
+			}
+
+			try {
+				self::recordFailedAttempt( $row, $email, $ip );
+			} catch ( \RuntimeException $e ) {
+				self::logError( 'submit_code_failed_attempt', $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine() );
+
+				return self::SUBMIT_ATTEMPT_STORE_FAILED;
+			}
+
+			return ( self::isAttemptsLimitReached( $email ) ? self::SUBMIT_LOCKED : self::SUBMIT_INVALID );
+		} );
 	}
 
 	/**

@@ -8,6 +8,7 @@
  */
 
 use CB\Plugin\BeforeRegVerify\CBBeforeRegVerify;
+use CB\Plugin\BeforeRegVerify\LockException;
 use CB\Plugin\BeforeRegVerify\Table\VerificationTable;
 use CBLib\Application\Application;
 use CBLib\Language\CBTxt;
@@ -143,78 +144,69 @@ class CBplug_cbbeforeregverify extends cbPluginHandler
 		$this->requireCsrf( 'step_code' );
 
 		$email	=	$this->getFlowEmailOrRedirect();
-		$row	=	CBBeforeRegVerify::getActiveVerificationRow( $email );
 
-		if ( ! $row ) {
-			CBBeforeRegVerify::clearFlowEmail();
+		try {
+			$result	=	CBBeforeRegVerify::submitCode( $email, $this->getInput()->getString( 'post/verification_code', '' ), (string) Application::Input()->getRequestIP() );
+		} catch ( LockException $e ) {
+			$this->logException( $e, 'submit_code_lock' );
 
-			cbRedirect(
-				CBBeforeRegVerify::getGatewayUrl( 'step_email' ),
-				CBTxt::T( 'CBBEFOREREGVERIFY_NO_ACTIVE_REQUEST', 'Your verification request is not active. Please start again.' ),
-				'error'
-			);
+			$result	=	CBBeforeRegVerify::SUBMIT_VERIFY_FAILED;
 		}
 
-		if ( CBBeforeRegVerify::isExpired( $row ) ) {
-			$this->expireAndRestart( $row );
-		}
+		// The lock is released by now, so cbRedirect() can't skip the release.
+		switch ( $result ) {
+			case CBBeforeRegVerify::SUBMIT_NO_ACTIVE:
+				CBBeforeRegVerify::clearFlowEmail();
 
-		if ( CBBeforeRegVerify::isAttemptsLimitReached( $email ) ) {
-			cbRedirect(
-				CBBeforeRegVerify::getGatewayUrl( 'step_code' ),
-				CBBeforeRegVerify::getAttemptsLockoutMessage( $email ),
-				'error'
-			);
-		}
+				cbRedirect(
+					CBBeforeRegVerify::getGatewayUrl( 'step_email' ),
+					CBTxt::T( 'CBBEFOREREGVERIFY_NO_ACTIVE_REQUEST', 'Your verification request is not active. Please start again.' ),
+					'error'
+				);
+				break;
+			case CBBeforeRegVerify::SUBMIT_EXPIRED:
+				CBBeforeRegVerify::clearFlowEmail();
+				CBBeforeRegVerify::clearVerifiedEmail();
 
-		$code	=	trim( $this->getInput()->getString( 'post/verification_code', '' ) );
+				cbRedirect(
+					CBBeforeRegVerify::getGatewayUrl( 'step_email' ),
+					CBTxt::T( 'CBBEFOREREGVERIFY_EXPIRED', 'Your verification code has expired. Please request a new code.' ),
+					'error'
+				);
+				break;
+			case CBBeforeRegVerify::SUBMIT_LOCKED:
+				cbRedirect(
+					CBBeforeRegVerify::getGatewayUrl( 'step_code' ),
+					CBBeforeRegVerify::getAttemptsLockoutMessage( $email ),
+					'error'
+				);
+				break;
+			case CBBeforeRegVerify::SUBMIT_VERIFIED:
+				CBBeforeRegVerify::setFlowEmail( $email );
+				CBBeforeRegVerify::setVerifiedEmail( $email );
 
-		if ( $code === '' ) {
-			cbRedirect(
-				CBBeforeRegVerify::getGatewayUrl( 'step_code' ),
-				CBTxt::T( 'CBBEFOREREGVERIFY_CODE_INVALID', 'The verification code is incorrect. Please try again.' ),
-				'error'
-			);
-		}
-
-		if ( CBBeforeRegVerify::verifyCode( $row, $code ) ) {
-			if ( ( ! CBBeforeRegVerify::regenerateSessionId() ) || ( ! CBBeforeRegVerify::markVerified( $row ) ) ) {
+				cbRedirect(
+					CBBeforeRegVerify::getRegistrationUrl(),
+					CBTxt::T( 'CBBEFOREREGVERIFY_CODE_VERIFIED', 'Email verification complete. Continue with registration.' )
+				);
+				break;
+			case CBBeforeRegVerify::SUBMIT_VERIFY_FAILED:
 				cbRedirect(
 					CBBeforeRegVerify::getGatewayUrl( 'step_code' ),
 					CBTxt::T( 'CBBEFOREREGVERIFY_VERIFY_STORE_FAILED', 'Unable to complete verification. Please try again.' ),
 					'error'
 				);
-			}
-
-			CBBeforeRegVerify::setFlowEmail( $email );
-			CBBeforeRegVerify::setVerifiedEmail( $email );
-
-			cbRedirect(
-				CBBeforeRegVerify::getRegistrationUrl(),
-				CBTxt::T( 'CBBEFOREREGVERIFY_CODE_VERIFIED', 'Email verification complete. Continue with registration.' )
-			);
+				break;
+			case CBBeforeRegVerify::SUBMIT_ATTEMPT_STORE_FAILED:
+				cbRedirect(
+					CBBeforeRegVerify::getGatewayUrl( 'step_code' ),
+					CBTxt::T( 'CBBEFOREREGVERIFY_ATTEMPT_STORE_FAILED', 'Failed to record verification attempt.' ),
+					'error'
+				);
+				break;
 		}
 
-		try {
-			CBBeforeRegVerify::recordFailedAttempt( $row, $email, (string) Application::Input()->getRequestIP() );
-		} catch ( \Throwable $e ) {
-			$this->logException( $e, 'submit_code_failed_attempt' );
-
-			cbRedirect(
-				CBBeforeRegVerify::getGatewayUrl( 'step_code' ),
-				CBTxt::T( 'CBBEFOREREGVERIFY_ATTEMPT_STORE_FAILED', 'Failed to record verification attempt.' ),
-				'error'
-			);
-		}
-
-		if ( CBBeforeRegVerify::isAttemptsLimitReached( $email ) ) {
-			cbRedirect(
-				CBBeforeRegVerify::getGatewayUrl( 'step_code' ),
-				CBBeforeRegVerify::getAttemptsLockoutMessage( $email ),
-				'error'
-			);
-		}
-
+		// SUBMIT_INVALID
 		cbRedirect(
 			CBBeforeRegVerify::getGatewayUrl( 'step_code' ),
 			CBTxt::T( 'CBBEFOREREGVERIFY_CODE_INVALID', 'The verification code is incorrect. Please try again.' ),
