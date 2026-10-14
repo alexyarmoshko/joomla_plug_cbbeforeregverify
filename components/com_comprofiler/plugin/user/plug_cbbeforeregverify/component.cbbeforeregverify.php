@@ -9,7 +9,6 @@
 
 use CB\Plugin\BeforeRegVerify\CBBeforeRegVerify;
 use CB\Plugin\BeforeRegVerify\LockException;
-use CB\Plugin\BeforeRegVerify\Table\VerificationTable;
 use CBLib\Application\Application;
 use CBLib\Language\CBTxt;
 
@@ -116,10 +115,24 @@ class CBplug_cbbeforeregverify extends cbPluginHandler
 	 */
 	private function showStepCode(): void
 	{
-		$email	=	$this->getFlowEmailOrRedirect();
-		$row	=	CBBeforeRegVerify::getActiveVerificationRow( $email );
+		global $_CB_framework;
 
-		if ( ! $row ) {
+		$email	=	$this->getFlowEmailOrRedirect();
+
+		try {
+			$state	=	CBBeforeRegVerify::checkActiveRequest( $email );
+		} catch ( LockException $e ) {
+			$this->logException( $e, 'step_code_lock' );
+
+			// Render in place: redirecting to step_code would retry the lock in a loop.
+			$_CB_framework->enqueueMessage( CBTxt::T( 'CBBEFOREREGVERIFY_BUSY', 'The request could not be completed. Please try again.' ), 'error' );
+
+			$this->renderView( 'step_code' );
+
+			return;
+		}
+
+		if ( $state === CBBeforeRegVerify::REQUEST_NONE ) {
 			CBBeforeRegVerify::clearFlowEmail();
 
 			cbRedirect(
@@ -129,8 +142,8 @@ class CBplug_cbbeforeregverify extends cbPluginHandler
 			);
 		}
 
-		if ( CBBeforeRegVerify::isExpired( $row ) ) {
-			$this->expireAndRestart( $row );
+		if ( $state === CBBeforeRegVerify::REQUEST_EXPIRED ) {
+			$this->redirectExpired();
 		}
 
 		$this->renderView( 'step_code' );
@@ -222,12 +235,24 @@ class CBplug_cbbeforeregverify extends cbPluginHandler
 		$this->requireCsrf( 'step_code' );
 
 		$email	=	$this->getFlowEmailOrRedirect();
-		$row	=	CBBeforeRegVerify::getActiveVerificationRow( $email );
 
-		if ( $row && CBBeforeRegVerify::isExpired( $row ) ) {
-			$this->expireAndRestart( $row );
+		try {
+			$state	=	CBBeforeRegVerify::checkActiveRequest( $email );
+		} catch ( LockException $e ) {
+			$this->logException( $e, 'resend_code_lock' );
+
+			cbRedirect(
+				CBBeforeRegVerify::getGatewayUrl( 'step_code' ),
+				CBTxt::T( 'CBBEFOREREGVERIFY_RESEND_FAILED', 'Unable to resend verification code right now.' ),
+				'error'
+			);
 		}
 
+		if ( $state === CBBeforeRegVerify::REQUEST_EXPIRED ) {
+			$this->redirectExpired();
+		}
+
+		// A separate lock call from the check above, never nested inside it.
 		try {
 			CBBeforeRegVerify::issueResendCode( $email, (string) Application::Input()->getRequestIP() );
 		} catch ( \DomainException $e ) {
@@ -262,10 +287,16 @@ class CBplug_cbbeforeregverify extends cbPluginHandler
 		$email	=	CBBeforeRegVerify::getFlowEmail();
 
 		if ( $email !== '' ) {
-			$row	=	CBBeforeRegVerify::getActiveVerificationRow( $email );
+			try {
+				CBBeforeRegVerify::cancelActiveRequest( $email );
+			} catch ( LockException $e ) {
+				$this->logException( $e, 'cancel_lock' );
 
-			if ( $row ) {
-				CBBeforeRegVerify::cancelRequest( $row, ( CBBeforeRegVerify::isExpired( $row ) ? 'expired' : 'user_cancelled' ) );
+				cbRedirect(
+					CBBeforeRegVerify::getGatewayUrl( 'step_email' ),
+					CBTxt::T( 'CBBEFOREREGVERIFY_BUSY', 'The request could not be completed. Please try again.' ),
+					'error'
+				);
 			}
 		}
 
@@ -288,7 +319,17 @@ class CBplug_cbbeforeregverify extends cbPluginHandler
 		$flowEmail	=	CBBeforeRegVerify::getFlowEmail();
 
 		if ( $flowEmail !== '' ) {
-			CBBeforeRegVerify::softCancelPendingRows( $flowEmail, 'user_restarted' );
+			try {
+				CBBeforeRegVerify::restartRequest( $flowEmail );
+			} catch ( LockException $e ) {
+				$this->logException( $e, 'restart_lock' );
+
+				cbRedirect(
+					CBBeforeRegVerify::getGatewayUrl( 'step_email' ),
+					CBTxt::T( 'CBBEFOREREGVERIFY_BUSY', 'The request could not be completed. Please try again.' ),
+					'error'
+				);
+			}
 		}
 
 		CBBeforeRegVerify::clearVerificationSession();
@@ -300,12 +341,12 @@ class CBplug_cbbeforeregverify extends cbPluginHandler
 	}
 
 	/**
-	 * @param VerificationTable $row
+	 * The row was already cancelled under the email lock; this only clears the session.
+	 *
 	 * @return void
 	 */
-	private function expireAndRestart( VerificationTable $row ): void
+	private function redirectExpired(): void
 	{
-		CBBeforeRegVerify::cancelRequest( $row, 'expired' );
 		CBBeforeRegVerify::clearFlowEmail();
 		CBBeforeRegVerify::clearVerifiedEmail();
 

@@ -36,6 +36,10 @@ class CBBeforeRegVerify
 	public const SUBMIT_VERIFY_FAILED			=	'verify_failed';
 	public const SUBMIT_ATTEMPT_STORE_FAILED	=	'attempt_store_failed';
 
+	public const REQUEST_NONE		=	'none';
+	public const REQUEST_EXPIRED	=	'expired';
+	public const REQUEST_ACTIVE		=	'active';
+
 	/** @var bool */
 	private static $maintenanceRan		=	false;
 
@@ -598,7 +602,8 @@ class CBBeforeRegVerify
 	public static function recordFailedAttempt( VerificationTable $activeRow, string $email, string $ip ): VerificationTable
 	{
 		$row	=	new VerificationTable();
-		$now	=	Application::Database()->getUtcDateTime();
+		// Current time, not request start: the caller may have waited on the email lock.
+		$now	=	Application::Database()->getUtcDateTime( time() );
 
 		$row->set( 'email', self::normalizeEmail( $email ) );
 		$row->set( 'code_hash', null );
@@ -783,52 +788,130 @@ class CBBeforeRegVerify
 			throw new \InvalidArgumentException( CBTxt::T( 'CBBEFOREREGVERIFY_EMAIL_INVALID', 'Enter a valid email address.' ) );
 		}
 
-		// A new code does not reset failed attempts, so don't mail one that can't be used yet.
-		if ( self::isAttemptsLimitReached( $email ) ) {
-			throw new \DomainException( self::getAttemptsLockoutMessage( $email ) );
+		$locks		=	[ self::lockName( 'email', $email ) ];
+
+		if ( trim( $ip ) !== '' ) {
+			$locks[]	=	self::lockName( 'ip', trim( $ip ) );
 		}
 
-		$rateLimit	=	self::canProceedByRateLimits( $email, $ip );
+		// Checks through insert run under the locks, so parallel issues see each other's rows.
+		// The mail is sent after the release, so a slow SMTP server doesn't hold the IP lock.
+		[ $row, $code ]	=	self::withLocks( $locks, static function () use ( $email, $ip, $status ): array {
+			// A new code does not reset failed attempts, so don't mail one that can't be used yet.
+			if ( self::isAttemptsLimitReached( $email ) ) {
+				throw new \DomainException( self::getAttemptsLockoutMessage( $email ) );
+			}
 
-		if ( ! $rateLimit['allowed'] ) {
-			throw new \DomainException( $rateLimit['message'] ?: CBTxt::T( 'CBBEFOREREGVERIFY_RATE_LIMITED', 'Too many verification requests. Please try again later.' ) );
-		}
+			$rateLimit	=	self::canProceedByRateLimits( $email, $ip );
 
-		self::softCancelPendingRows( $email, 'replaced_by_new_issue' );
+			if ( ! $rateLimit['allowed'] ) {
+				throw new \DomainException( $rateLimit['message'] ?: CBTxt::T( 'CBBEFOREREGVERIFY_RATE_LIMITED', 'Too many verification requests. Please try again later.' ) );
+			}
 
-		$row		=	new VerificationTable();
-		$code		=	self::generateCode();
-		$now		=	Application::Database()->getUtcDateTime();
+			self::softCancelPendingRows( $email, 'replaced_by_new_issue' );
 
-		$row->set( 'email', $email );
-		$row->set( 'code_hash', self::hashCode( $code ) );
-		$row->set( 'status', $status );
-		$row->set( 'outcome', VerificationTable::OUTCOME_PENDING );
-		$row->set( 'ttl', self::getVerificationTtl() );
-		$row->set( 'sent_at', $now );
-		$row->set( 'modified_at', $now );
-		$row->set( 'request_ip', $ip );
-		$row->set( 'note', null );
+			$row		=	new VerificationTable();
+			$code		=	self::generateCode();
+			// Current time, not request start: a lock wait would otherwise backdate the row
+			// and shorten the cooldown and windows the next request sees.
+			$now		=	Application::Database()->getUtcDateTime( time() );
 
-		if ( $row->getError() || ( ! $row->check() ) ) {
-			self::logError( 'issue_code_check', (string) $row->getError() );
+			$row->set( 'email', $email );
+			$row->set( 'code_hash', self::hashCode( $code ) );
+			$row->set( 'status', $status );
+			$row->set( 'outcome', VerificationTable::OUTCOME_PENDING );
+			$row->set( 'ttl', self::getVerificationTtl() );
+			$row->set( 'sent_at', $now );
+			$row->set( 'modified_at', $now );
+			$row->set( 'request_ip', $ip );
+			$row->set( 'note', null );
 
-			throw new \RuntimeException( CBTxt::T( 'CBBEFOREREGVERIFY_ISSUE_FAILED', 'Failed to create verification request.' ) );
-		}
+			if ( $row->getError() || ( ! $row->check() ) ) {
+				self::logError( 'issue_code_check', (string) $row->getError() );
 
-		if ( $row->getError() || ( ! $row->store() ) ) {
-			self::logError( 'issue_code_store', (string) $row->getError() );
+				throw new \RuntimeException( CBTxt::T( 'CBBEFOREREGVERIFY_ISSUE_FAILED', 'Failed to create verification request.' ) );
+			}
 
-			throw new \RuntimeException( CBTxt::T( 'CBBEFOREREGVERIFY_ISSUE_FAILED', 'Failed to create verification request.' ) );
-		}
+			if ( $row->getError() || ( ! $row->store() ) ) {
+				self::logError( 'issue_code_store', (string) $row->getError() );
+
+				throw new \RuntimeException( CBTxt::T( 'CBBEFOREREGVERIFY_ISSUE_FAILED', 'Failed to create verification request.' ) );
+			}
+
+			return [ $row, $code ];
+		} );
 
 		if ( ! self::sendVerificationEmail( $email, $code, $row->getInt( 'ttl', self::getVerificationTtl() ) ) ) {
-			self::cancelRequest( $row, self::NOTE_MAIL_SEND_FAILED );
+			$previous	=	null;
 
-			throw new \RuntimeException( CBTxt::T( 'CBBEFOREREGVERIFY_EMAIL_SEND_FAILED', 'Verification email failed to send. Please try again.' ) );
+			try {
+				// Conditional: a later issue may already have replaced this row.
+				self::withLocks( [ self::lockName( 'email', $email ) ], static function () use ( $row ): void {
+					self::cancelRequest( $row, self::NOTE_MAIL_SEND_FAILED );
+				} );
+			} catch ( LockException $e ) {
+				// The row stays pending; the visitor still gets the send failure below.
+				$previous	=	$e;
+			}
+
+			throw new \RuntimeException( CBTxt::T( 'CBBEFOREREGVERIFY_EMAIL_SEND_FAILED', 'Verification email failed to send. Please try again.' ), 0, $previous );
 		}
 
 		return $row;
+	}
+
+	/**
+	 * Expire the active request under the email lock when its time is up.
+	 *
+	 * @param string $email
+	 * @return string One of the REQUEST_* constants
+	 * @throws LockException
+	 */
+	public static function checkActiveRequest( string $email ): string
+	{
+		return self::withLocks( [ self::lockName( 'email', self::normalizeEmail( $email ) ) ], static function () use ( $email ): string {
+			$row	=	self::getActiveVerificationRow( $email );
+
+			if ( ! $row ) {
+				return self::REQUEST_NONE;
+			}
+
+			if ( self::isExpired( $row ) ) {
+				self::cancelRequest( $row, 'expired' );
+
+				return self::REQUEST_EXPIRED;
+			}
+
+			return self::REQUEST_ACTIVE;
+		} );
+	}
+
+	/**
+	 * @param string $email
+	 * @return void
+	 * @throws LockException
+	 */
+	public static function cancelActiveRequest( string $email ): void
+	{
+		self::withLocks( [ self::lockName( 'email', self::normalizeEmail( $email ) ) ], static function () use ( $email ): void {
+			$row	=	self::getActiveVerificationRow( $email );
+
+			if ( $row ) {
+				self::cancelRequest( $row, ( self::isExpired( $row ) ? 'expired' : 'user_cancelled' ) );
+			}
+		} );
+	}
+
+	/**
+	 * @param string $email
+	 * @return void
+	 * @throws LockException
+	 */
+	public static function restartRequest( string $email ): void
+	{
+		self::withLocks( [ self::lockName( 'email', self::normalizeEmail( $email ) ) ], static function () use ( $email ): void {
+			self::softCancelPendingRows( $email, 'user_restarted' );
+		} );
 	}
 
 	/**

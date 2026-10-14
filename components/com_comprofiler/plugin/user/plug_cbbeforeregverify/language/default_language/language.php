@@ -56,6 +56,7 @@ return array(
 	'CBBEFOREREGVERIFY_NO_ACTIVE_REQUEST'	=>	'Your verification request is not active. Please start again.',
 	'CBBEFOREREGVERIFY_CANCELLED'			=>	'Verification was cancelled.',
 	'CBBEFOREREGVERIFY_RESTARTED'			=>	'Email verification was reset. Enter a new email address to continue.',
+	'CBBEFOREREGVERIFY_BUSY'				=>	'The request could not be completed. Please try again.',
 	'CBBEFOREREGVERIFY_START_WITH_EMAIL'	=>	'Enter your email first to begin verification.',
 	'CBBEFOREREGVERIFY_VERIFY_REQUIRED'		=>	'Complete email verification before submitting registration.',
 	'CBBEFOREREGVERIFY_EMAIL_MISMATCH'		=>	'Verified email does not match submitted email. Please verify again.',
