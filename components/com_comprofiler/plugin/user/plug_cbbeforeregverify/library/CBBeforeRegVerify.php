@@ -967,6 +967,156 @@ class CBBeforeRegVerify
 		return ( $sentAt ? (string) $sentAt : null );
 	}
 
+	private const LOCK_TIMEOUT_SEC	=	10;
+
+	/** @var int */
+	private static $lockDepth		=	0;
+
+	/**
+	 * Named locks are server-wide, so the name carries the database and table prefix.
+	 * Hashing keeps it short and keeps emails and IPs out of the process list.
+	 *
+	 * @param string $kind
+	 * @param string $value
+	 * @return string
+	 */
+	public static function lockName( string $kind, string $value ): string
+	{
+		$app	=	Factory::getApplication();
+
+		return 'cbbrv:' . sha1( (string) $app->get( 'db', '' ) . ':' . (string) $app->get( 'dbprefix', '' ) . ':' . $kind . ':' . $value );
+	}
+
+	/**
+	 * Run $fn while holding the given named locks. All locks share one deadline, are
+	 * taken in sorted order and released in reverse. The connection id is checked
+	 * before and after acquisition and after $fn, because a reconnect drops the locks.
+	 * That is detection only: writes $fn made after a reconnect stay written.
+	 * Nothing inside $fn may call cbRedirect(), since finally doesn't run on exit.
+	 *
+	 * @param string[] $names
+	 * @param callable $fn
+	 * @return mixed Whatever $fn returns
+	 * @throws LockException
+	 */
+	public static function withLocks( array $names, callable $fn ): mixed
+	{
+		global $_CB_database;
+
+		if ( self::$lockDepth > 0 ) {
+			throw new \LogicException( 'withLocks() does not nest' );
+		}
+
+		// Before the increment, so a bad name can't leave the counter stuck.
+		$names	=	array_values( array_unique( array_map( 'strval', $names ) ) );
+
+		sort( $names, SORT_STRING );
+
+		self::$lockDepth++;
+
+		$held	=	[];
+
+		try {
+			$connectionId	=	self::getConnectionId( null );
+			$deadline		=	hrtime( true ) + ( self::LOCK_TIMEOUT_SEC * 1000000000 );
+
+			foreach ( $names as $name ) {
+				$wait	=	max( 0, min( self::LOCK_TIMEOUT_SEC, (int) ceil( ( $deadline - hrtime( true ) ) / 1000000000 ) ) );
+
+				try {
+					$_CB_database->setQuery( 'SELECT GET_LOCK( ' . $_CB_database->Quote( $name ) . ', ' . $wait . ' )' );
+
+					$result	=	$_CB_database->loadResult();
+				} catch ( \Throwable $e ) {
+					self::logError( 'lock', $name . ' error ' . get_class( $e ) . ': ' . $e->getMessage() );
+
+					throw new LockException( 'Unable to acquire lock', 0, $e );
+				}
+
+				if ( (int) $result !== 1 ) {
+					self::logError( 'lock', $name . ' result ' . var_export( $result, true ) );
+
+					throw new LockException( 'Unable to acquire lock' );
+				}
+
+				$held[]	=	$name;
+			}
+
+			if ( self::getConnectionId( null ) !== $connectionId ) {
+				self::logError( 'lock', 'connection changed' );
+
+				throw new LockException( 'Database connection changed while acquiring locks' );
+			}
+
+			$error	=	null;
+			$return	=	null;
+
+			try {
+				$return	=	$fn();
+			} catch ( \Throwable $e ) {
+				$error	=	$e;
+			}
+
+			if ( self::getConnectionId( $error ) !== $connectionId ) {
+				self::logError( 'lock', 'connection changed' );
+
+				throw new LockException( 'Database connection changed while holding locks', 0, $error );
+			}
+
+			if ( $error ) {
+				throw $error;
+			}
+
+			return $return;
+		} finally {
+			foreach ( array_reverse( $held ) as $name ) {
+				try {
+					$_CB_database->setQuery( 'SELECT RELEASE_LOCK( ' . $_CB_database->Quote( $name ) . ' )' );
+
+					$result	=	$_CB_database->loadResult();
+
+					if ( (int) $result !== 1 ) {
+						self::logError( 'lock', $name . ' release result ' . var_export( $result, true ) );
+					}
+				} catch ( \Throwable $e ) {
+					self::logError( 'lock', $name . ' release error ' . get_class( $e ) . ': ' . $e->getMessage() );
+				}
+			}
+
+			self::$lockDepth--;
+		}
+	}
+
+	/**
+	 * @param null|\Throwable $previous The callback's exception, chained in place of the database error
+	 * @return string
+	 * @throws LockException
+	 */
+	private static function getConnectionId( ?\Throwable $previous ): string
+	{
+		global $_CB_database;
+
+		$connectionId	=	'';
+		$error			=	null;
+
+		try {
+			$_CB_database->setQuery( 'SELECT CONNECTION_ID()' );
+
+			$connectionId	=	(string) $_CB_database->loadResult();
+		} catch ( \Throwable $e ) {
+			$error	=	$e;
+		}
+
+		// A reconnect inside execute() can return the sql_mode SELECT from connect() instead.
+		if ( ! ctype_digit( $connectionId ) ) {
+			self::logError( 'lock', 'connection unavailable' . ( $error ? ' ' . get_class( $error ) . ': ' . $error->getMessage() : '' ) );
+
+			throw new LockException( 'Database connection unavailable', 0, ( $previous ?? $error ) );
+		}
+
+		return $connectionId;
+	}
+
 	/**
 	 * @param string $context
 	 * @param string $details

@@ -37,6 +37,7 @@ PACKAGE_FILES := \
 	language/default_language/language.php \
 	library/index.html \
 	library/CBBeforeRegVerify.php \
+	library/LockException.php \
 	library/Table/index.html \
 	library/Table/VerificationTable.php \
 	library/Trigger/index.html \
