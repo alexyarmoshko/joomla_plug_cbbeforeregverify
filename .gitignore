@@ -9,3 +9,4 @@ node_modules/
 coverage/
 .playwright-mcp/
 *:Zone.Identifier
+__pycache__/
