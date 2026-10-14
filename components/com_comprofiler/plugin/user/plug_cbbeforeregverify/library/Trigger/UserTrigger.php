@@ -139,7 +139,14 @@ class UserTrigger extends \cbPluginHandler
 				$input	=	(string) preg_replace( '/\s*\/?>$/', '', $input );
 
 				if ( preg_match( '/\bvalue\s*=\s*(["\']).*?\1/i', $input ) ) {
-					$input	=	(string) preg_replace( '/\bvalue\s*=\s*(["\']).*?\1/i', 'value="' . $emailEscaped . '"', $input );
+					// Callback, not a replacement string: "$1" is valid in an email address.
+					$input	=	(string) preg_replace_callback(
+						'/\bvalue\s*=\s*(["\']).*?\1/i',
+						static function() use ( $emailEscaped ): string {
+							return 'value="' . $emailEscaped . '"';
+						},
+						$input
+					);
 				} else {
 					$input	.=	' value="' . $emailEscaped . '"';
 				}

@@ -19,7 +19,7 @@ class cbbeforeregverifyInstaller
 	private const MAIL_TEMPLATE_KEY			=	'comprofiler.cbbeforeregverify.verification_code';
 	// Joomla's mail editor builds its insert buttons from these names, so they must match the body placeholders.
 	private const MAIL_TEMPLATE_TAGS		=	[ 'code', 'minutes' ];
-	// Joomla uppercases language keys when it loads them, so one spelling is enough.
+	// Joomla keeps override keys as written and uppercases only the key it looks up, so only uppercase keys ever match.
 	private const MAIL_TEMPLATE_TITLE_KEY	=	'COMPROFILER_MAIL_CBBEFOREREGVERIFY_VERIFICATION_CODE_TITLE';
 	private const MAIL_TEMPLATE_DESC_KEY	=	'COMPROFILER_MAIL_CBBEFOREREGVERIFY_VERIFICATION_CODE_DESC';
 	private const MAIL_TEMPLATE_SHORT_KEY	=	'COMPROFILER_MAIL_CBBEFOREREGVERIFY_VERIFICATION_CODE_SHORT';
@@ -174,7 +174,7 @@ class cbbeforeregverifyInstaller
 					return;
 				}
 
-				$current	=	array_change_key_case( $parsed, CASE_UPPER );
+				$current	=	$parsed;
 			}
 
 			$lines		=	[];

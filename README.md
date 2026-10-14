@@ -42,7 +42,7 @@ No Joomla/CB user is created by this plugin before verification completes.
 - Community Builder 2.11.0+
 - PHP version supported by your Joomla + CB stack
 - Working mail delivery in Joomla
-- Joomla's own registration (Users: Options → Allow User Registration) switched off, or the CB system plugin's "Redirect URLs" option switched on. The gateway only covers CB's registration form.
+- Joomla's own registration (Users: Options → Allow User Registration) switched off. The gateway only covers CB's registration form, and the CB system plugin's "Redirect URLs" option alone doesn't close Joomla's registration endpoint.
 
 ## Installation
 

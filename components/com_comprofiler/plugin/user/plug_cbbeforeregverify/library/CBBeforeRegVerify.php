@@ -26,6 +26,7 @@ class CBBeforeRegVerify
 	public const SESSION_VERIFIED_EMAIL	=	'cbbeforeregverify_verified_email';
 	public const MAIL_TEMPLATE_KEY		=	'comprofiler.cbbeforeregverify.verification_code';
 	public const LOG_CATEGORY			=	'cbbeforeregverify';
+	public const NOTE_MAIL_SEND_FAILED	=	'mail_send_failed';
 
 	/** @var bool */
 	private static $maintenanceRan		=	false;
@@ -653,7 +654,9 @@ class CBBeforeRegVerify
 
 		$query		=	'DELETE FROM ' . $_CB_database->NameQuote( '#__comprofiler_plugin_beforeregverify' )
 					.	"\n WHERE " . $_CB_database->NameQuote( 'modified_at' ) . " < " . $_CB_database->Quote( $threshold )
-					.	"\n AND ( " . $_CB_database->NameQuote( 'outcome' ) . " <> " . $_CB_database->Quote( VerificationTable::OUTCOME_PENDING )
+					// Pending requests and failed attempts are kept until their own TTL ends; attempts still count toward the lockout.
+					.	"\n AND ( ( " . $_CB_database->NameQuote( 'outcome' ) . " <> " . $_CB_database->Quote( VerificationTable::OUTCOME_PENDING )
+					.	' AND ' . $_CB_database->NameQuote( 'status' ) . " <> " . $_CB_database->Quote( VerificationTable::STATUS_ATTEMPT ) . ' )'
 					.	"\n OR DATE_ADD(" . $_CB_database->NameQuote( 'sent_at' ) . ', INTERVAL ' . $_CB_database->NameQuote( 'ttl' ) . ' SECOND) <= ' . $_CB_database->Quote( $now )
 					.	' )';
 		$_CB_database->setQuery( $query );
@@ -725,7 +728,7 @@ class CBBeforeRegVerify
 		}
 
 		if ( ! self::sendVerificationEmail( $email, $code, $row->getInt( 'ttl', self::getVerificationTtl() ) ) ) {
-			self::cancelRequest( $row, 'mail_send_failed' );
+			self::cancelRequest( $row, self::NOTE_MAIL_SEND_FAILED );
 
 			throw new \RuntimeException( CBTxt::T( 'CBBEFOREREGVERIFY_EMAIL_SEND_FAILED', 'Verification email failed to send. Please try again.' ) );
 		}
@@ -932,6 +935,8 @@ class CBBeforeRegVerify
 				.	"\n FROM " . $_CB_database->NameQuote( '#__comprofiler_plugin_beforeregverify' )
 				.	"\n WHERE " . $_CB_database->NameQuote( 'email' ) . " = " . $_CB_database->Quote( $email )
 				.	"\n AND " . $_CB_database->NameQuote( 'status' ) . " IN ( " . $_CB_database->Quote( VerificationTable::STATUS_SENT ) . ', ' . $_CB_database->Quote( VerificationTable::STATUS_RESENT ) . ' )'
+				// A code that never reached the mailbox must not start a cooldown.
+				.	"\n AND ( " . $_CB_database->NameQuote( 'note' ) . ' IS NULL OR ' . $_CB_database->NameQuote( 'note' ) . ' <> ' . $_CB_database->Quote( self::NOTE_MAIL_SEND_FAILED ) . ' )'
 				.	"\n ORDER BY " . $_CB_database->NameQuote( 'sent_at' ) . ' DESC';
 		$_CB_database->setQuery( $query, 0, 1 );
 		$sentAt	=	$_CB_database->loadResult();
