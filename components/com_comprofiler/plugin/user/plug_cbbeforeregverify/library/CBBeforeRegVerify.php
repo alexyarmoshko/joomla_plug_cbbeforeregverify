@@ -841,9 +841,19 @@ class CBBeforeRegVerify
 			return [ $row, $code ];
 		} );
 
-		if ( ! self::sendVerificationEmail( $email, $code, $row->getInt( 'ttl', self::getVerificationTtl() ) ) ) {
-			$previous	=	null;
+		$previous	=	null;
 
+		// A mailer that throws is a failed send too, or the row would stay pending and hold the cooldown.
+		try {
+			$sent	=	self::sendVerificationEmail( $email, $code, $row->getInt( 'ttl', self::getVerificationTtl() ) );
+		} catch ( \Throwable $e ) {
+			self::logError( 'issue_code_send', get_class( $e ) . ': ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine() );
+
+			$sent		=	false;
+			$previous	=	$e;
+		}
+
+		if ( ! $sent ) {
 			try {
 				// Conditional: a later issue may already have replaced this row.
 				self::withLocks( [ self::lockName( 'email', $email ) ], static function () use ( $row ): void {
@@ -851,7 +861,8 @@ class CBBeforeRegVerify
 				} );
 			} catch ( LockException $e ) {
 				// The row stays pending; the visitor still gets the send failure below.
-				$previous	=	$e;
+				// withLocks() has logged it, so a mailer exception stays the chained cause.
+				$previous	=	( $previous ?? $e );
 			}
 
 			throw new \RuntimeException( CBTxt::T( 'CBBEFOREREGVERIFY_EMAIL_SEND_FAILED', 'Verification email failed to send. Please try again.' ), 0, $previous );
