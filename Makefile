@@ -274,4 +274,7 @@ dist_dev:
 	$(call package,$(DEV_ZIP),$(PLUGIN_DIR),$$(git log -1 --format=%ct))
 
 clean:
-	@rm -rf "$(BUILD_DIR)" "$(INSTALL_DIR)/release" "$(INSTALL_DIR)/dev"
+	@# Only the current version's packages: earlier releases stay, since rebuilding one
+	@# needs a clean checkout of its own tag.
+	@rm -rf "$(BUILD_DIR)"
+	@rm -f "$(RELEASE_ZIP)" "$(RELEASE_ZIP).part" "$(DEV_ZIP)" "$(DEV_ZIP).part"

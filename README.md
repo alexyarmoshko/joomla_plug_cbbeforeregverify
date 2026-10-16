@@ -86,7 +86,7 @@ Run from the repository root in a Linux shell or Git Bash on Windows. Requires `
 | `make dist_dev` | Build a test package from the working tree into `installation/dev/`. |
 | `make release` | Run `test` and `lint`, then tag the version. Needs a clean tree and a `## <version>` heading in `docs/RELEASE.md`. |
 | `make dist_release` | Build the release package from the tag into `installation/release/` and print its sha256. Needs a clean tree with `HEAD` at the tag. |
-| `make clean` | Remove `build/` and both package output directories. |
+| `make clean` | Remove `build/` and the current version's release and dev packages. Packages of earlier versions stay. |
 
 The version comes from `<release>` in the manifest. `<version>` is the Community Builder compatibility version (`2.11.0`).
 
