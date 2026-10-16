@@ -36,7 +36,7 @@ No Joomla/CB user is created by this plugin before verification completes.
 
 - Joomla target platform: `5.x` and `6.x`.
 - Community Builder compatibility (`<version>`): `2.11.0`. Tested on CB 2.12.0.
-- Plugin release (`<release>`): `0.1.1`.
+- Plugin release (`<release>`): `0.1.2`.
 
 ## Requirements
 

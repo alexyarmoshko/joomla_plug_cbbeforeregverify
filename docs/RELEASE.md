@@ -1,5 +1,37 @@
 # Release Notes
 
+## 0.1.2 (2026-10-16)
+
+Fixes to the verification gateway: limits that hold under parallel requests, session handling, the mail template and several smaller issues.
+
+### Fixes
+
+- The attempt limit, the IP and email send limits and the resend cooldown now hold when requests arrive in parallel. Before, several parallel requests could all pass a limit check before any of them was recorded. Database named locks (`GET_LOCK`) now serialize each check with its write. The verification mail is sent after the locks are released.
+- A verification request can no longer be overwritten by an older request running at the same time. A request leaves `pending` only through a conditional update.
+- The session ID is rotated properly after a correct code, and the old session row is removed. A failed rotation fails the request.
+- While an email is locked after too many wrong codes, no new code is sent, and the message says how long to wait.
+- The resend cooldown applies to every new code for an email, whether it was requested by resend or by entering the email again.
+- The mail template's insert buttons now insert `{CODE}` and `{MINUTES}`. On install, existing templates get the corrected tag list. Their subject and body are left as they are.
+- A mail that throws an exception counts as a failed send.
+- The "Use a different email" button on the registration form works without JavaScript.
+- An email address containing `$1` is no longer mangled when the form is prefilled.
+- A logged-in visitor, or a visit while registration is closed, gets Community Builder's own message.
+- Errors are logged to `administrator/logs/cbbeforeregverify.php`.
+- Stale rows are purged only once they are outside every enabled limit window.
+- Removed the code field's `maxlength`, a leftover development string, and the lowercase language override keys that never matched.
+
+### Requirements
+
+- MySQL or MariaDB, because the limits use named locks. A multi-primary cluster such as Galera isn't supported, because named locks aren't shared between nodes.
+
+### Testing
+
+- New end-to-end tests in `tests/e2e/` sign up on a DDEV test site, and a parallel-request harness in `tests/concurrency/` checks the limits. Neither ships in the package.
+
+### Upgrading
+
+Install the 0.1.2 ZIP over 0.1.1 in Community Builder → Plugin Management. Settings and data are kept, and there is no database schema change.
+
 ## 0.1.1 (2026-10-13)
 
 No functional changes. The shipped code is the same as in the published 0.1.0 package.
