@@ -26,6 +26,8 @@ No Joomla/CB user is created by this plugin before verification completes.
 - Failed-attempt row recording with configurable attempts limit. While an email is locked, no new code is sent and the message gives the wait time.
 - Independent IP-based and email-based send limits.
 - Cooldown between new codes for the same email, whether requested by resend or by entering the email again.
+- Limits hold under parallel requests. Database named locks (`GET_LOCK`) serialize the send limits per email and per IP, and the cooldown and attempt limit per email. The mail is sent after the locks are released. If a request can't take its first locks within 10 seconds, it fails with an error message before writing any verification state.
+- A request leaves `pending` only through a conditional update, so a stale request can't overwrite a verification or cancellation another request has already made.
 - Runtime purge of stale rows older than purge threshold, while retaining unexpired `pending` verification rows and rows still inside an enabled rate-limit window.
 - Joomla Mail Template support (`comprofiler.cbbeforeregverify.verification_code`) with fallback to `cbNotification`.
 - At registration time, verified users are marked `confirmed = 1` when the verified email matches the registration email.
@@ -41,6 +43,7 @@ No Joomla/CB user is created by this plugin before verification completes.
 - Joomla 5.x or 6.x
 - Community Builder 2.11.0+
 - PHP version supported by your Joomla + CB stack
+- MySQL or MariaDB, for `GET_LOCK` named locks. A multi-primary cluster such as Galera isn't supported, because named locks aren't shared between nodes.
 - Working mail delivery in Joomla
 - Joomla's own registration (Users: Options → Allow User Registration) switched off. The gateway only covers CB's registration form, and the CB system plugin's "Redirect URLs" option alone doesn't close Joomla's registration endpoint.
 

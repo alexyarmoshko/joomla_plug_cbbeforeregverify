@@ -19,7 +19,7 @@ Each session uses its own cookie jar, because Joomla's filesystem session handle
 
 ### What it changes on the site
 
-- **Plugin parameters.** It changes them with `JSON_SET` before each test. Before every test, and again at the end (in a `finally`), it restores them to the plugin defaults. It refuses to start unless the current values are the defaults. It never reads or prints the `secret` parameter.
+- **Plugin parameters.** It changes them with `JSON_SET` before each test. Before every test, and again at the end (in a `finally`), it restores them to the plugin defaults. It refuses to start unless the current values are the defaults and the site answers 200, and a refusal changes nothing on the site. It never reads or prints the `secret` parameter.
 - **Test rows.** It deletes every row in `<prefix>comprofiler_plugin_beforeregverify` whose email ends in `@example.test`, before and after each test. Use that domain for nothing else on the test site.
 - **Mail.** It leaves its test messages in Mailpit.
 - **What it doesn't touch.** `configuration.php` (it records the file's SHA-256 before and after, as a check), plugin code, and anything outside the test site.

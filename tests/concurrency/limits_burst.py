@@ -93,13 +93,16 @@ summary = []
 log = SITE/'administrator/logs/cbbeforeregverify.php'
 log_before = log.read_bytes() if log.exists() else b''
 config_hash = hashlib.sha256((SITE/'configuration.php').read_bytes()).hexdigest()
+# Read-only preflight, outside the try: a refused site must not reach the cleanup in finally.
+save('ddev-describe.txt', command(['ddev','describe']))
+save('fpm.txt', command(['ddev','exec','php-fpm -tt 2>&1']))
+before = sql("SELECT JSON_REMOVE(params,'$.secret') FROM %s WHERE element='cbbeforeregverify'" % PLUGINS)
+save('params-before.json',before)
+if not all(json.loads(before).get(k)==v for k,v in DEFAULT.items()):
+    raise SystemExit('refusing to run: plugin limit parameters are not the defaults (see params-before.json)')
+if command(['curl','-sS','-o','/dev/null','-w','%{http_code}',URL.split('/index.php')[0]+'/']) != '200':
+    raise SystemExit('refusing to run: the site did not answer 200')
 try:
-    save('ddev-describe.txt', command(['ddev','describe']))
-    save('fpm.txt', command(['ddev','exec','php-fpm -tt 2>&1']))
-    before = sql("SELECT JSON_REMOVE(params,'$.secret') FROM %s WHERE element='cbbeforeregverify'" % PLUGINS)
-    save('params-before.json',before)
-    assert all(json.loads(before).get(k)==v for k,v in DEFAULT.items())
-    assert command(['curl','-sS','-o','/dev/null','-w','%{http_code}',URL.split('/index.php')[0]+'/']) == '200'
     save('web-before.log', command(['ddev','logs','-s','web']))
     for test in 'ABCD':
         for run in range(1,4):

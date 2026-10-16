@@ -573,7 +573,8 @@ class CBBeforeRegVerify
 			return false;
 		}
 
-		$now	=	Application::Database()->getUtcDateTime();
+		// Current time, like the inserts: the purge reads modified_at, so it must not predate sent_at.
+		$now	=	Application::Database()->getUtcDateTime( time() );
 		$query	=	'UPDATE ' . $_CB_database->NameQuote( '#__comprofiler_plugin_beforeregverify' )
 				.	"\n SET " . $_CB_database->NameQuote( 'outcome' ) . " = " . $_CB_database->Quote( $outcome )
 				.	', ' . $_CB_database->NameQuote( 'note' ) . ' = ' . ( $note === null ? 'NULL' : $_CB_database->Quote( $note ) )
@@ -754,6 +755,8 @@ class CBBeforeRegVerify
 
 		$query		=	'DELETE FROM ' . $_CB_database->NameQuote( '#__comprofiler_plugin_beforeregverify' )
 					.	"\n WHERE " . $_CB_database->NameQuote( 'modified_at' ) . " < " . $_CB_database->Quote( $threshold )
+					// Older versions could stamp a cancel before the row's sent_at; the limit windows count sent_at.
+					.	"\n AND " . $_CB_database->NameQuote( 'sent_at' ) . " < " . $_CB_database->Quote( $threshold )
 					// Pending requests and failed attempts are kept until their own TTL ends; attempts still count toward the lockout.
 					.	"\n AND ( ( " . $_CB_database->NameQuote( 'outcome' ) . " <> " . $_CB_database->Quote( VerificationTable::OUTCOME_PENDING )
 					.	' AND ' . $_CB_database->NameQuote( 'status' ) . " <> " . $_CB_database->Quote( VerificationTable::STATUS_ATTEMPT ) . ' )'
@@ -1008,7 +1011,7 @@ class CBBeforeRegVerify
 		$query	=	'UPDATE ' . $_CB_database->NameQuote( '#__comprofiler_plugin_beforeregverify' )
 				.	"\n SET " . $_CB_database->NameQuote( 'outcome' ) . " = " . $_CB_database->Quote( VerificationTable::OUTCOME_CANCELLED )
 				.	', ' . $_CB_database->NameQuote( 'note' ) . ' = ' . $_CB_database->Quote( $reason )
-				.	', ' . $_CB_database->NameQuote( 'modified_at' ) . ' = ' . $_CB_database->Quote( Application::Database()->getUtcDateTime() )
+				.	', ' . $_CB_database->NameQuote( 'modified_at' ) . ' = ' . $_CB_database->Quote( Application::Database()->getUtcDateTime( time() ) )
 				.	"\n WHERE " . $_CB_database->NameQuote( 'email' ) . " = " . $_CB_database->Quote( $email )
 				.	"\n AND " . $_CB_database->NameQuote( 'outcome' ) . " = " . $_CB_database->Quote( VerificationTable::OUTCOME_PENDING )
 				.	"\n AND " . $_CB_database->NameQuote( 'status' ) . " IN ( " . $_CB_database->Quote( VerificationTable::STATUS_SENT ) . ', ' . $_CB_database->Quote( VerificationTable::STATUS_RESENT ) . ' )';
