@@ -82,7 +82,7 @@ Run from the repository root in a Linux shell or Git Bash on Windows. Requires `
 |---|---|
 | `make info` | Show the version and the paths the build uses. |
 | `make lint` | Check that `PACKAGE_FILES` in the Makefile matches the files git tracks in the plugin directory, then syntax-check the PHP and the manifest XML. |
-| `make test` | No automated tests; release testing is manual. |
+| `make test` | No unit tests. The end-to-end tests run separately, see [Testing](#testing). |
 | `make dist_dev` | Build a test package from the working tree into `installation/dev/`. |
 | `make release` | Run `test` and `lint`, then tag the version. Needs a clean tree and a `## <version>` heading in `docs/RELEASE.md`. |
 | `make dist_release` | Build the release package from the tag into `installation/release/` and print its sha256. Needs a clean tree with `HEAD` at the tag. |
@@ -106,6 +106,12 @@ When you add a file to the plugin, add it to `PACKAGE_FILES` too, or `make lint`
 2. Run `make release`.
 3. Run `make dist_release`.
 4. Push the tag, upload `installation/release/plug_cbbeforeregverify-v<version-with-dashes>.zip` as the GitHub release asset, and put its sha256 in the release description.
+
+## Testing
+
+`tests/e2e/` holds Playwright tests that sign up on a DDEV test site. They check that registration works once the email is verified, that changing the email needs the new one confirmed, and that registration is refused without verification, with a wrong code, or with a different email. They change the test site while they run. [`tests/e2e/README.md`](tests/e2e/README.md) lists what they change, and how to set up `.env` and run them.
+
+`tests/concurrency/` checks that the rate limits hold under parallel requests.
 
 ## License
 
